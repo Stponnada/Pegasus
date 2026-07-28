@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ontology Memory — live recall</title>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+  :root {
+    --bg:#0d1117; --panel:#161b22; --line:#30363d; --text:#c9d1d9; --dim:#7d8590;
+    --gold:#e3b341; --fire:#f85149; --inject:#3fb950; --filtered:#d29922; --accent:#58a6ff;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+         background:var(--bg); color:var(--text); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+  header { padding:10px 16px; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:15px; margin:0 12px 0 0; font-weight:600; }
+  header h1 small { color:var(--dim); font-weight:400; }
+  input#q { flex:1; min-width:220px; background:#0d1117; border:1px solid var(--line); color:var(--text);
+            padding:7px 10px; border-radius:6px; font-size:13px; }
+  button { background:#21262d; border:1px solid var(--line); color:var(--text); padding:7px 12px;
+           border-radius:6px; cursor:pointer; font-size:13px; }
+  button:hover:not(:disabled) { border-color:var(--accent); }
+  button:disabled { opacity:.4; cursor:default; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#0d1117; font-weight:600; }
+  .presets { display:flex; gap:6px; flex-wrap:wrap; padding:8px 16px; border-bottom:1px solid var(--line); }
+  .presets span { color:var(--dim); font-size:12px; align-self:center; margin-right:4px; }
+  .chip { font-size:12px; padding:4px 9px; border-radius:12px; background:#1c2128; border:1px solid var(--line); cursor:pointer; }
+  .chip:hover { border-color:var(--accent); color:#fff; }
+  main { flex:1; display:flex; min-height:0; }
+  #graph { flex:1; min-width:0; background:radial-gradient(circle at 50% 40%, #11161d, #0d1117); }
+  aside { width:420px; border-left:1px solid var(--line); display:flex; flex-direction:column; background:var(--panel); }
+  .status { padding:10px 14px; border-bottom:1px solid var(--line); font-size:13px; min-height:44px; color:var(--dim); }
+  .status b { color:var(--text); }
+  .ctxhead { padding:8px 14px; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim);
+             border-bottom:1px solid var(--line); display:flex; justify-content:space-between; }
+  #ctx { flex:1; overflow-y:auto; padding:12px 14px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px; line-height:1.5; }
+  .sect { color:var(--accent); margin:8px 0 4px; font-weight:600; }
+  .sect.ctx { color:var(--gold); }
+  .mem, .snip { opacity:0; transform:translateX(10px); animation:slidein .35s ease forwards; }
+  .mem { color:#d6e2ee; }
+  .snip { color:#9fb0c0; font-style:italic; margin:3px 0 6px; padding-left:8px; border-left:2px solid #2d333b; }
+  @keyframes slidein { to { opacity:1; transform:none; } }
+  .empty { color:var(--dim); font-style:italic; }
+  footer { padding:6px 14px; border-top:1px solid var(--line); font-size:11px; color:var(--dim); display:flex; gap:14px; flex-wrap:wrap; }
+  .legend { display:flex; gap:12px; align-items:center; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px; vertical-align:middle; }
+  .speed { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ontology Memory <small>— watch recall spread through the graph</small></h1>
+  <input id="q" placeholder="Ask something… e.g. Tell me about my trip to Rome" />
+  <button id="run" class="primary">▶ Run</button>
+  <button id="step">Step</button>
+  <button id="reset">Reset</button>
+  <span class="speed">slow <input id="speed" type="range" min="180" max="1400" value="700" /> fast</span>
+</header>
+<div class="presets" id="presets"><span>try:</span></div>
+<main>
+  <div id="graph"></div>
+  <aside>
+    <div class="status" id="status">Pick a query and press <b>Run</b>. Seeds fire, activation spreads edge-by-edge, and each edge that clears the budget drops its memory into the context window →</div>
+    <div class="ctxhead"><span>context window (what the LLM sees)</span><span id="ctxcount"></span></div>
+    <div id="ctx"><div class="empty">empty — no recall yet</div></div>
+  </aside>
+</main>
+<footer>
+  <div class="legend">
+    <span><span class="dot" style="background:#e3b341"></span>seed</span>
+    <span><span class="dot" style="background:#f85149"></span>fired (≥ threshold)</span>
+    <span><span class="dot" style="background:#3fb950"></span>edge → injected</span>
+    <span><span class="dot" style="background:#d29922"></span>traversed, filtered out</span>
+  </div>
+  <div id="meta"></div>
+</footer>
+
+<script>
+const KIND_COLOR = {
+  PERSON:"#6e9eff", ORG:"#b083f0", PLACE:"#3fb0ac", EVENT:"#f0883e",
+  TOPIC:"#56d364", THING:"#db61a2", PREFERENCE:"#e3b341", OTHER:"#8b949e",
+};
+const PRESETS = ["Tell me about my trip to Rome","Who is my manager?","Tell me about Diocletian",
+                 "What do Priya and I talk about?","How is the on-call situation?","What's my partner's name?"];
+
+let network, nodes, edges, baseGraph, steps=[], stepIdx=0, playing=false, trace=null;
+
+function nodeBase(n){
+  return { id:n.id, label:n.label, shape:"dot", size:16,
+    color:{ background:KIND_COLOR[n.kind]||"#8b949e", border:"#2d333b", highlight:{background:KIND_COLOR[n.kind]||"#8b949e", border:"#58a6ff"} },
+    font:{ color:"#c9d1d9", size:13, face:"-apple-system" }, borderWidth:1, opacity:0.45 };
+}
+function edgeBase(e){
+  return { id:e.id, from:e.from, to:e.to, label:"", title:e.label, arrows:"to",
+    color:{ color: e.superseded ? "#3d2d2d" : "#2d333b", opacity:0.6 },
+    dashes: e.superseded, width:1, smooth:{type:"dynamic"},
+    font:{ color:"#7d8590", size:10, strokeWidth:3, strokeColor:"#0d1117", align:"middle" } };
+}
+
+async function loadGraph(){
+  baseGraph = await (await fetch("/graph")).json();
+  nodes = new vis.DataSet(baseGraph.nodes.map(nodeBase));
+  edges = new vis.DataSet(baseGraph.edges.map(edgeBase));
+  network = new vis.Network(document.getElementById("graph"), {nodes, edges}, {
+    physics:{ barnesHut:{ gravitationalConstant:-9000, springLength:150, springConstant:0.04, avoidOverlap:0.4 }, stabilization:{iterations:300} },
+    interaction:{ hover:true, tooltipDelay:120 }, layout:{ improvedLayout:true },
+  });
+  network.once("stabilizationIterationsDone", ()=> network.setOptions({physics:false}));
+}
+
+function resetStyles(){
+  nodes.update(baseGraph.nodes.map(nodeBase));
+  edges.update(baseGraph.edges.map(edgeBase));
+  document.getElementById("ctx").innerHTML = '<div class="empty">empty — no recall yet</div>';
+  document.getElementById("ctxcount").textContent = "";
+  document.getElementById("meta").textContent = "";
+  ctxStarted = false; memHeader=false; ctxHeader=false; injMem=0; injSnip=0;
+}
+
+// ---- context-window panel -------------------------------------------------
+let ctxStarted=false, memHeader=false, ctxHeader=false, injMem=0, injSnip=0;
+function ctxEl(){ return document.getElementById("ctx"); }
+function ensureMemHeader(){
+  if(memHeader) return; if(!ctxStarted){ ctxEl().innerHTML=""; ctxStarted=true; }
+  const h=document.createElement("div"); h.className="sect"; h.textContent="[MEMORY]"; ctxEl().appendChild(h); memHeader=true;
+}
+function ensureCtxHeader(){
+  if(ctxHeader) return; const h=document.createElement("div"); h.className="sect ctx"; h.textContent="[CONTEXT]"; ctxEl().appendChild(h); ctxHeader=true;
+}
+function dropMemory(line){ ensureMemHeader(); const d=document.createElement("div"); d.className="mem"; d.textContent=line; ctxEl().appendChild(d); injMem++; updateCount(); ctxEl().scrollTop=1e9; }
+function dropSnippet(text){ ensureCtxHeader(); const d=document.createElement("div"); d.className="snip"; d.textContent='“'+text+'”'; ctxEl().appendChild(d); injSnip++; updateCount(); ctxEl().scrollTop=1e9; }
+function updateCount(){ document.getElementById("ctxcount").textContent = injMem+" lines · "+injSnip+" snippets"; }
+
+// ---- build animation steps from the trace ---------------------------------
+function flashEdge(id, color, width){
+  edges.update({id, color:{color, opacity:1}, width:width+2});
+  setTimeout(()=> edges.update({id, width}), 260);
+}
+function setStatus(html){ document.getElementById("status").innerHTML = html; }
+
+function buildSteps(t){
+  const prim = t.thresholds.primary;
+  const fired = new Set();
+  const out = [];
+  for(const ev of t.events){
+    if(ev.type==="seed"){
+      out.push({ run:()=>{
+        nodes.update({id:ev.node, opacity:1, size:24, borderWidth:4,
+          color:{ background:KIND_COLOR[graphKind(ev.node)]||"#8b949e", border:"#e3b341" },
+          label: ev.name+"\n● seed 1.00", font:{color:"#fff",size:14} });
+        fired.add(ev.node);
+        setStatus(`<b>Seed</b>: “${ev.name}” lit up by the query (activation <b>1.00</b>)`);
+        network.focus(ev.node, {scale:1.05, animation:{duration:300}});
+      }});
+    } else if(ev.type==="cross"){
+      out.push({ run:()=>{
+        const col = ev.injected_memory ? getCss("--inject") : getCss("--filtered");
+        flashEdge(ev.edge, col, ev.injected_memory?3:2);
+        edges.update({id:ev.edge, color:{color:col, opacity: ev.injected_memory?1:0.75}, width: ev.injected_memory?3:1.5, label: ev.contribution.toFixed(2)});
+        const isFired = ev.cumulative >= prim;
+        const k = KIND_COLOR[graphKind(ev.reached)]||"#8b949e";
+        nodes.update({id:ev.reached, opacity:1, size: isFired?22:16, borderWidth: isFired?3:1.5,
+          color:{ background:k, border: isFired ? "#f85149" : "#444c56" },
+          label: ev.reached_name + (isFired? `\n⚡ ${ev.cumulative.toFixed(2)}` : `\n· ${ev.cumulative.toFixed(2)}`) });
+        if(isFired) fired.add(ev.reached);
+        const arrow = ev.direction==="reverse" ? "←" : "→";
+        const tag = ev.injected_memory ? `<span style="color:${getCss('--inject')}">injected</span>`
+                  : `<span style="color:${getCss('--filtered')}">below budget/threshold</span>`;
+        setStatus(`Hop ${ev.hop}: <b>${ev.from_name}</b> ${arrow}[${ev.relation}]${arrow} <b>${ev.reached_name}</b> &nbsp; +${ev.contribution.toFixed(2)} ⇒ <b>${ev.cumulative.toFixed(2)}</b> &nbsp; ${tag}`);
+        if(ev.injected_memory) dropMemory(`${ev.from_name} -[${ev.relation}]-> ${ev.reached_name}`);
+        if(ev.injected_snippet) dropSnippet(ev.snippet);
+      }});
+    } else if(ev.type==="boost"){
+      out.push({ run:()=>{
+        nodes.update({id:ev.node, color:{background:KIND_COLOR[graphKind(ev.node)]||"#8b949e", border:"#56d364"}, borderWidth:3});
+        setStatus(`<b>Co-episode boost</b>: “${ev.name}” shares a remembered conversation (+${ev.amount.toFixed(2)} ⇒ ${ev.cumulative.toFixed(2)})`);
+      }});
+    }
+  }
+  // final: fade everything not selected
+  const sel = new Set(t.selected.map(s=>s.key));
+  out.push({ run:()=>{
+    baseGraph.nodes.forEach(n=>{ if(!sel.has(n.id)) nodes.update({id:n.id, opacity:0.18, label:n.label, borderWidth:1, color:{border:"#2d333b"}}); });
+    baseGraph.edges.forEach(e=>{ const on = sel.has(e.from)&&sel.has(e.to); if(!on) edges.update({id:e.id, color:{color:"#23282f",opacity:0.35}, width:1, label:""}); });
+    setStatus(`<b>Recall complete.</b> ${t.selected.length} nodes selected · <b>${injMem}</b> memory lines and <b>${injSnip}</b> snippets injected into context.`);
+    document.getElementById("meta").textContent = `seeds: ${t.seeds.map(s=>s.name).join(", ")||"none"} · budget ${t.thresholds.node_budget} · primary ≥ ${t.thresholds.primary} · snippet ≥ ${t.thresholds.secondary}`;
+  }});
+  return out;
+}
+function graphKind(id){ const n = baseGraph.nodes.find(x=>x.id===id); return n?n.kind:"OTHER"; }
+function getCss(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+
+// ---- run / step controls --------------------------------------------------
+async function runQuery(){
+  const q = document.getElementById("q").value.trim(); if(!q) return;
+  trace = await (await fetch("/trace?q="+encodeURIComponent(q))).json();
+  if(trace.error){ setStatus("error: "+trace.error); return; }
+  resetStyles(); steps = buildSteps(trace); stepIdx = 0;
+  if(!trace.seeds.length){ setStatus(`No seeds matched “${q}”. The graph stays dark — nothing to recall. Try naming a person, place, or relation (e.g. “manager”).`); return; }
+  playAll();
+}
+async function playAll(){
+  playing = true; document.getElementById("run").disabled = true;
+  const delay = ()=> 1580 - (+document.getElementById("speed").value);
+  while(stepIdx < steps.length && playing){
+    steps[stepIdx++].run();
+    await new Promise(r=> setTimeout(r, delay()));
+  }
+  playing = false; document.getElementById("run").disabled = false;
+}
+function stepOnce(){ playing=false; if(stepIdx<steps.length) steps[stepIdx++].run(); }
+
+document.getElementById("run").onclick = runQuery;
+document.getElementById("step").onclick = ()=>{ if(!steps.length || stepIdx>=steps.length){ runQueryNoPlay(); } else stepOnce(); };
+document.getElementById("reset").onclick = ()=>{ playing=false; steps=[]; stepIdx=0; resetStyles(); setStatus("Reset. Pick a query and press <b>Run</b>."); };
+document.getElementById("q").addEventListener("keydown", e=>{ if(e.key==="Enter") runQuery(); });
+async function runQueryNoPlay(){
+  const q = document.getElementById("q").value.trim(); if(!q) return;
+  trace = await (await fetch("/trace?q="+encodeURIComponent(q))).json();
+  if(trace.error){ setStatus("error: "+trace.error); return; }
+  resetStyles(); steps = buildSteps(trace); stepIdx = 0; stepOnce();
+}
+
+const pc = document.getElementById("presets");
+PRESETS.forEach(p=>{ const c=document.createElement("span"); c.className="chip"; c.textContent=p;
+  c.onclick=()=>{ document.getElementById("q").value=p; runQuery(); }; pc.appendChild(c); });
+
+loadGraph();
+</script>
+</body>
+</html>

@@ -1,0 +1,1160 @@
+{
+  "conversations": [
+    {
+      "title": "work_intro",
+      "transcript": [
+        {
+          "role": "user",
+          "turn": 1,
+          "text": "Hey! I just wanted to talk through some stuff. I'm Marcus, I'm a software engineer at Anthropic — I work on inference infrastructure, mostly making the models serve faster."
+        },
+        {
+          "role": "assistant",
+          "turn": 2,
+          "text": "It’s great to meet you, Marcus! Inference infrastructure is such a critical piece of the puzzle right now, especially as we push the boundaries of how quickly these complex models can respond. Balancing that kind of low-latency performance with the sheer computational demands of large-scale models must be an incredibly rewarding technical challenge. Are you mostly focusing on optimizing the compute kernels themselves, or are you looking more at the distributed systems side of things to handle the traffic?"
+        },
+        {
+          "role": "user",
+          "turn": 3,
+          "text": "It's good but intense. My manager Dana is great but the on-call rotation is brutal — I had three pages last night. My teammate Wei usually covers for me but he's on vacation."
+        },
+        {
+          "role": "assistant",
+          "turn": 4,
+          "text": "I am so sorry to hear that you had such a rough night; dealing with three pages while understaffed sounds incredibly draining. It’s a testament to your hard work, but even the most dedicated engineers need some breathing room to avoid burnout. Since Wei is away, is there any room for the team to temporarily adjust your on-call load or pull in someone else to help share the burden until he’s back?"
+        },
+        {
+          "role": "user",
+          "turn": 5,
+          "text": "Yeah exactly. I keep telling myself I'll set boundaries but I never do. I think I just really care about the systems staying up."
+        },
+        {
+          "role": "assistant",
+          "turn": 6,
+          "text": "It’s completely understandable to feel that way, especially when you’ve poured so much effort into building these systems—it’s hard to just walk away when you know exactly how the architecture holds together. However, that sense of ownership is often what leads to the best engineers burning out before they reach their full potential. Do you think there’s a specific \"bottleneck\" in the on-call process, like excessive alerting or flaky tests, that might make it easier to disconnect once your shift is over?"
+        }
+      ]
+    },
+    {
+      "title": "roman_history",
+      "transcript": [
+        {
+          "role": "user",
+          "turn": 1,
+          "text": "On a totally different note — the way I unwind is reading about the Roman empire. Kind of obsessively, honestly. My friend Priya got me into it a couple years ago."
+        },
+        {
+          "role": "assistant",
+          "turn": 2,
+          "text": "That is a fascinating rabbit hole to fall down, especially since Roman history is so layered with political intrigue and cultural parallels that feel surprisingly modern. It’s no wonder you’ve become obsessed; once you start pulling at those threads, it’s hard to stop. Do you find yourself drawn more to the high-stakes drama of the Republic’s collapse, or are you more fascinated by the day-to-day lives of the people who lived under the Emperors?"
+        },
+        {
+          "role": "user",
+          "turn": 3,
+          "text": "Right now I'm fascinated by the Crisis of the Third Century — how Rome almost collapsed and then Diocletian basically rebuilt the whole administrative system. I find the tetrarchy genuinely brilliant."
+        },
+        {
+          "role": "assistant",
+          "turn": 4,
+          "text": "It is such a pivotal turning point; that sense of near-total disintegration makes the resilience of the empire feel even more remarkable. Diocletian’s implementation of the Tetrarchy was a radical shift in governing logic, essentially prioritizing stability through decentralization, though it certainly laid the groundwork for all the succession struggles that followed. Do you think that level of rigid, top-down administrative overhaul was the only thing that could have saved Rome at that point, or do you think the empire had already become too fractured to truly sustain that kind of order?"
+        },
+        {
+          "role": "user",
+          "turn": 5,
+          "text": "Do you think Diocletian's reforms actually saved the empire, or just delayed the inevitable? I go back and forth on this."
+        },
+        {
+          "role": "assistant",
+          "turn": 6,
+          "text": "That is the million-dollar question, and it really hinges on whether you view Rome’s \"fate\" as a slow erosion or a series of preventable accidents. While the Tetrarchy successfully halted the immediate fragmentation, some historians argue it created a bloated, expensive bureaucracy that eventually stifled the economic dynamism needed to survive future shocks. Do you lean toward the idea that the empire’s internal contradictions made its eventual fall a structural certainty, or do you think it could have thrived indefinitely under a more flexible system?"
+        },
+        {
+          "role": "user",
+          "turn": 7,
+          "text": "That makes sense. Priya argues it just delayed it. I think I'm coming around to her view actually."
+        },
+        {
+          "role": "assistant",
+          "turn": 8,
+          "text": "It’s easy to see why you’re leaning toward Priya’s perspective, especially when you look at how the administrative burden eventually put such a massive strain on the provinces. When you consider that the system was built so heavily on the personality and iron will of someone like Diocletian, it does start to look like a temporary fix rather than a permanent solution. If the empire couldn't survive without that level of constant, rigid intervention, do you think there was a specific moment or \"point of no return\" where it truly became impossible to steer the ship back toward long-term stability?"
+        }
+      ]
+    },
+    {
+      "title": "personal_dilemma",
+      "transcript": [
+        {
+          "role": "user",
+          "turn": 1,
+          "text": "Something's been on my mind. My partner Elena and I are planning a trip to Rome next spring — first big trip together. I'm really excited but also nervous about taking the time off."
+        },
+        {
+          "role": "assistant",
+          "turn": 2,
+          "text": "It is completely normal to feel a bit of apprehension before a first big trip, but Rome in the spring is absolutely magical and well worth the leap. Taking that time away to experience such a vibrant, historic city together is a wonderful way to strengthen your bond and create lasting memories. Have you two started sketching out a \"must-see\" list for the Eternal City yet, or are you hoping to keep the itinerary a bit more spontaneous?"
+        },
+        {
+          "role": "user",
+          "turn": 3,
+          "text": "And there's a work thing tangled up in it. I got offered a transfer to the alignment safety team at Anthropic. It's the work I find most meaningful, but it'd mean leaving Dana's team and probably more uncertainty."
+        },
+        {
+          "role": "assistant",
+          "turn": 4,
+          "text": "That is a significant career milestone, and it’s understandable that the timing feels complicated with your trip on the horizon. Choosing to work on AI alignment is such impactful, forward-thinking work, but I can see why leaving a team you’re comfortable with feels like a big step into the unknown. Do you feel like this opportunity is something you’d regret passing up, or does the prospect of that transition feel like it might overshadow the excitement of planning your getaway with Elena?"
+        },
+        {
+          "role": "user",
+          "turn": 5,
+          "text": "I think deep down I want the safety role. The infrastructure work is comfortable but the safety mission is why I joined Anthropic in the first place. I'm just scared of the change."
+        },
+        {
+          "role": "assistant",
+          "turn": 6,
+          "text": "It makes complete sense that you’d feel that way; growth often requires stepping out of the comfort of familiar infrastructure and into the complexities of a new team. Since the safety mission is what originally drew you to Anthropic, it sounds like this role is a truer reflection of your long-term values, even if the \"fear of the unknown\" is currently making it feel daunting. Do you think having this clear professional direction might actually make it easier to fully disconnect and enjoy your trip once you’ve made the leap, or are you worried the adjustment period might follow you to Rome?"
+        }
+      ]
+    },
+    {
+      "title": "followup_callback",
+      "transcript": [
+        {
+          "role": "user",
+          "turn": 1,
+          "text": "Hey, back again. I've been thinking more about that big decision at work I mentioned."
+        },
+        {
+          "role": "assistant",
+          "turn": 2,
+          "text": "It’s great to see you again; those kinds of professional crossroads can definitely weigh on the mind. Have you had a chance to reflect on any of the potential outcomes we discussed, or has a new perspective shifted your thinking since we last spoke? I'd love to hear where your head is at with it now."
+        },
+        {
+          "role": "user",
+          "turn": 3,
+          "text": "Yeah, the team transfer. I think I'm going to go for it. Also Elena and I booked the flights for the trip, so that's locked in now!"
+        },
+        {
+          "role": "assistant",
+          "turn": 4,
+          "text": "That is fantastic news on both fronts! It sounds like you’ve reached a really exciting turning point, and having that trip with Elena locked in gives you a perfect milestone to look forward to once the dust settles. How are you feeling now that you've officially committed to making the move, or are you still working through the logistics of the transition?"
+        }
+      ]
+    }
+  ],
+  "writes": [
+    {
+      "title": "work_intro",
+      "result": {
+        "episode_id": "d5da893c-591d-4dc2-904f-e830be4243d5",
+        "nodes_created": 6,
+        "nodes_merged": 0,
+        "edges_created": 5,
+        "edges_reinforced": 0,
+        "edges_dropped": 0,
+        "edges_superseded": 0,
+        "reinforced_from_read": 0,
+        "flagged": [],
+        "warnings": []
+      }
+    },
+    {
+      "title": "roman_history",
+      "result": {
+        "episode_id": "f141a700-ea62-44dc-a9e6-135d0f2d9112",
+        "nodes_created": 5,
+        "nodes_merged": 1,
+        "edges_created": 5,
+        "edges_reinforced": 0,
+        "edges_dropped": 0,
+        "edges_superseded": 0,
+        "reinforced_from_read": 0,
+        "flagged": [],
+        "warnings": []
+      }
+    },
+    {
+      "title": "personal_dilemma",
+      "result": {
+        "episode_id": "8520ef63-6371-4716-8c10-41d3729e0d9d",
+        "nodes_created": 3,
+        "nodes_merged": 2,
+        "edges_created": 4,
+        "edges_reinforced": 0,
+        "edges_dropped": 0,
+        "edges_superseded": 0,
+        "reinforced_from_read": 0,
+        "flagged": [],
+        "warnings": []
+      }
+    },
+    {
+      "title": "followup_callback",
+      "result": {
+        "episode_id": "9f9d2347-75dd-400b-b6eb-defba6f6acce",
+        "nodes_created": 0,
+        "nodes_merged": 4,
+        "edges_created": 2,
+        "edges_reinforced": 0,
+        "edges_dropped": 0,
+        "edges_superseded": 1,
+        "reinforced_from_read": 0,
+        "flagged": [],
+        "warnings": [
+          "edge PERSON::marcus::VALUES_WORK::ORG::alignment_safety_team superseded by PLANS_TO_TRANSFER_TO (demoted to 1.0, not deleted)"
+        ]
+      }
+    }
+  ],
+  "probes": [
+    {
+      "query": "I'm getting ready for that trip to Rome — what should I think about packing?",
+      "memory_block": "[MEMORY]\nMarcus -[PLANS_TO_VISIT]-> Rome",
+      "context_block": "[CONTEXT]\n\"Something's been on my mind. My partner Elena and I are planning a trip to Rome next spring — first big trip together. I'm really excited but also nervous about taking the time off.\"\n\"Something's been on my mind. My partner Elena and I are planning a trip to Rome next spring — first big trip together.\"",
+      "trace": {
+        "event": "read",
+        "message_preview": "I'm getting ready for that trip to Rome — what should I think about packing?",
+        "seeds": [
+          "PLACE::rome"
+        ],
+        "selected": [
+          "PLACE::rome",
+          "PERSON::marcus"
+        ],
+        "fired": {
+          "PLACE::rome": 1.0277,
+          "PERSON::marcus": 0.75,
+          "ORG::anthropic": 0.1777,
+          "TOPIC::inference_infrastructure": 0.1777,
+          "PERSON::dana": 0.1777,
+          "PERSON::wei": 0.1777,
+          "THING::on_call_rotation": 0.1777,
+          "TOPIC::roman_empire": 0.1777,
+          "PERSON::priya": 0.2053,
+          "EVENT::crisis_of_the_third_century": 0.1777,
+          "PERSON::elena": 0.2053,
+          "ORG::alignment_safety_team": 0.1779,
+          "PERSON::diocletian": 0.15,
+          "THING::tetrarchy": 0.15
+        },
+        "context_tokens_estimate": 62
+      }
+    },
+    {
+      "query": "Remind me what the career decision was that I've been wrestling with.",
+      "memory_block": "",
+      "context_block": "",
+      "trace": {
+        "event": "read",
+        "message_preview": "Remind me what the career decision was that I've been wrestling with.",
+        "seeds": [],
+        "selected": [],
+        "fired": {},
+        "context_tokens_estimate": 0
+      }
+    },
+    {
+      "query": "What do Priya and I usually talk about?",
+      "memory_block": "[MEMORY]\nMarcus -[IS_FRIENDS_WITH]-> Priya\nMarcus -[AGREES_WITH_ON_HISTORY]-> Priya",
+      "context_block": "[CONTEXT]\n\"On a totally different note — the way I unwind is reading about the Roman empire. Kind of obsessively, honestly. My friend Priya got me into it a couple years ago.\"\n\"Something's been on my mind. My partner Elena and I are planning a trip to Rome next spring — first big trip together.\"",
+      "trace": {
+        "event": "read",
+        "message_preview": "What do Priya and I usually talk about?",
+        "seeds": [
+          "PERSON::priya"
+        ],
+        "selected": [
+          "PERSON::priya",
+          "PERSON::marcus"
+        ],
+        "fired": {
+          "PERSON::priya": 1.0553,
+          "PERSON::marcus": 0.75,
+          "ORG::anthropic": 0.1777,
+          "TOPIC::inference_infrastructure": 0.1777,
+          "PERSON::dana": 0.1777,
+          "PERSON::wei": 0.1777,
+          "THING::on_call_rotation": 0.1777,
+          "TOPIC::roman_empire": 0.1777,
+          "EVENT::crisis_of_the_third_century": 0.1777,
+          "PERSON::elena": 0.2053,
+          "PLACE::rome": 0.1777,
+          "ORG::alignment_safety_team": 0.1779,
+          "PERSON::diocletian": 0.15,
+          "THING::tetrarchy": 0.15
+        },
+        "context_tokens_estimate": 62
+      }
+    },
+    {
+      "query": "How's the on-call situation been treating me?",
+      "memory_block": "[MEMORY]\nMarcus -[STRUGGLES_WITH]-> On-call Rotation",
+      "context_block": "[CONTEXT]\n\"It's good but intense. My manager Dana is great but the on-call rotation is brutal — I had three pages last night.\"\n\"Something's been on my mind. My partner Elena and I are planning a trip to Rome next spring — first big trip together.\"",
+      "trace": {
+        "event": "read",
+        "message_preview": "How's the on-call situation been treating me?",
+        "seeds": [
+          "THING::on_call_rotation"
+        ],
+        "selected": [
+          "THING::on_call_rotation",
+          "PERSON::marcus"
+        ],
+        "fired": {
+          "THING::on_call_rotation": 1.0277,
+          "PERSON::marcus": 0.75,
+          "ORG::anthropic": 0.1777,
+          "TOPIC::inference_infrastructure": 0.1777,
+          "PERSON::dana": 0.1777,
+          "PERSON::wei": 0.1777,
+          "TOPIC::roman_empire": 0.1777,
+          "PERSON::priya": 0.2053,
+          "EVENT::crisis_of_the_third_century": 0.1777,
+          "PERSON::elena": 0.2053,
+          "PLACE::rome": 0.1777,
+          "ORG::alignment_safety_team": 0.1779,
+          "PERSON::diocletian": 0.15,
+          "THING::tetrarchy": 0.15
+        },
+        "context_tokens_estimate": 51
+      }
+    },
+    {
+      "query": "Tell me something about Diocletian.",
+      "memory_block": "[MEMORY]\nTetrarchy -[CREATED_BY]-> Diocletian",
+      "context_block": "[CONTEXT]\n\"Right now I'm fascinated by the Crisis of the Third Century — how Rome almost collapsed and then Diocletian basically rebuilt the whole administrative system. I find the tetrarchy genuinely brilliant.\"",
+      "trace": {
+        "event": "read",
+        "message_preview": "Tell me something about Diocletian.",
+        "seeds": [
+          "PERSON::diocletian"
+        ],
+        "selected": [
+          "PERSON::diocletian",
+          "THING::tetrarchy"
+        ],
+        "fired": {
+          "PERSON::diocletian": 1.36,
+          "THING::tetrarchy": 0.75,
+          "PERSON::marcus": 0.15,
+          "TOPIC::roman_empire": 0.15,
+          "PERSON::priya": 0.15,
+          "EVENT::crisis_of_the_third_century": 0.15
+        },
+        "context_tokens_estimate": 36
+      }
+    },
+    {
+      "query": "What was my partner's name again?",
+      "memory_block": "[MEMORY]\nMarcus -[HAS_PARTNER]-> Elena\nMarcus -[HAS_CONFIRMED_TRIP_WITH]-> Elena",
+      "context_block": "[CONTEXT]\n\"Something's been on my mind. My partner Elena and I are planning a trip to Rome next spring — first big trip together.\"",
+      "trace": {
+        "event": "read",
+        "message_preview": "What was my partner's name again?",
+        "seeds": [
+          "PERSON::marcus",
+          "PERSON::elena"
+        ],
+        "selected": [
+          "PERSON::marcus",
+          "PERSON::elena"
+        ],
+        "fired": {
+          "PERSON::marcus": 1.9323,
+          "PERSON::elena": 1.1476,
+          "ORG::anthropic": 0.2377,
+          "TOPIC::inference_infrastructure": 0.2238,
+          "PERSON::dana": 0.2238,
+          "PERSON::wei": 0.2238,
+          "THING::on_call_rotation": 0.2238,
+          "TOPIC::roman_empire": 0.2238,
+          "PERSON::priya": 0.2976,
+          "EVENT::crisis_of_the_third_century": 0.2238,
+          "PLACE::rome": 0.2238,
+          "ORG::alignment_safety_team": 0.2384,
+          "PERSON::diocletian": 0.15,
+          "THING::tetrarchy": 0.15
+        },
+        "context_tokens_estimate": 31
+      }
+    }
+  ],
+  "retrieve_memory": [
+    {
+      "name": "Marcus",
+      "result": {
+        "found": true,
+        "node": {
+          "key": "PERSON::marcus",
+          "name": "Marcus",
+          "kind": "PERSON",
+          "properties": {},
+          "aliases": [
+            "Marcus"
+          ]
+        },
+        "relationships": [
+          {
+            "source": "PERSON::marcus",
+            "relation": "WORKS_AT",
+            "target": "ORG::anthropic",
+            "strength": 100.0,
+            "snippet": "I'm Marcus, I'm a software engineer at Anthropic — I work on inference infrastructure, mostly making the models serve faster."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "WORKS_ON",
+            "target": "TOPIC::inference_infrastructure",
+            "strength": 100.0,
+            "snippet": "I'm Marcus, I'm a software engineer at Anthropic — I work on inference infrastructure, mostly making the models serve faster."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "HAS_MANAGER",
+            "target": "PERSON::dana",
+            "strength": 100.0,
+            "snippet": "It's good but intense. My manager Dana is great but the on-call rotation is brutal — I had three pages last night."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "WORKS_WITH",
+            "target": "PERSON::wei",
+            "strength": 100.0,
+            "snippet": "My manager Dana is great but the on-call rotation is brutal — I had three pages last night. My teammate Wei usually covers for me but he's on vacation."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "STRUGGLES_WITH",
+            "target": "THING::on_call_rotation",
+            "strength": 100.0,
+            "snippet": "It's good but intense. My manager Dana is great but the on-call rotation is brutal — I had three pages last night."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "IS_INTERESTED_IN",
+            "target": "TOPIC::roman_empire",
+            "strength": 100.0,
+            "snippet": "On a totally different note — the way I unwind is reading about the Roman empire. Kind of obsessively, honestly. My friend Priya got me into it a couple years ago."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "IS_FRIENDS_WITH",
+            "target": "PERSON::priya",
+            "strength": 100.0,
+            "snippet": "On a totally different note — the way I unwind is reading about the Roman empire. Kind of obsessively, honestly. My friend Priya got me into it a couple years ago."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "IS_FASCINATED_BY",
+            "target": "EVENT::crisis_of_the_third_century",
+            "strength": 100.0,
+            "snippet": "Right now I'm fascinated by the Crisis of the Third Century — how Rome almost collapsed and then Diocletian basically rebuilt the whole administrative system. I find the tetrarchy genuinely brilliant."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "AGREES_WITH_ON_HISTORY",
+            "target": "PERSON::priya",
+            "strength": 100.0,
+            "snippet": "Priya argues it just delayed it. I think I'm coming around to her view actually."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "HAS_PARTNER",
+            "target": "PERSON::elena",
+            "strength": 100.0,
+            "snippet": "Something's been on my mind. My partner Elena and I are planning a trip to Rome next spring — first big trip together."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "PLANS_TO_VISIT",
+            "target": "PLACE::rome",
+            "strength": 100.0,
+            "snippet": "Something's been on my mind. My partner Elena and I are planning a trip to Rome next spring — first big trip together. I'm really excited but also nervous about taking the time off."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "VALUES_WORK",
+            "target": "ORG::alignment_safety_team",
+            "strength": 1.0,
+            "snippet": "I think deep down I want the safety role. The infrastructure work is comfortable but the safety mission is why I joined Anthropic in the first place. I'm just scared of the change."
+          },
+          {
+            "source": "ORG::alignment_safety_team",
+            "relation": "PART_OF",
+            "target": "ORG::anthropic",
+            "strength": 100.0,
+            "snippet": "And there's a work thing tangled up in it. I got offered a transfer to the alignment safety team at Anthropic. It's the work I find most meaningful, but it'd mean leaving Dana's team and probably more uncertainty."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "PLANS_TO_TRANSFER_TO",
+            "target": "ORG::alignment_safety_team",
+            "strength": 100.0,
+            "snippet": "User: Yeah, the team transfer. I think I'm going to go for it. Also Elena and I booked the flights for the trip, so that's locked in now!"
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "HAS_CONFIRMED_TRIP_WITH",
+            "target": "PERSON::elena",
+            "strength": 100.0,
+            "snippet": "User: Yeah, the team transfer. I think I'm going to go for it. Also Elena and I booked the flights for the trip, so that's locked in now!"
+          }
+        ],
+        "episodes": [
+          {
+            "summary": "Marcus discussed his deep interest in Roman history, specifically the Crisis of the Third Century and Diocletian's Tetrarchy, sharing that his friend Priya influenced his perspective on the decline of the empire.",
+            "importance": 0.5,
+            "tags": [
+              "personal_interest",
+              "history"
+            ]
+          },
+          {
+            "summary": "Marcus, a software engineer at Anthropic working on inference infrastructure, is experiencing burnout due to an intense and brutal on-call rotation while his teammate Wei is on vacation.",
+            "importance": 0.7,
+            "tags": [
+              "career",
+              "work_life_balance",
+              "engineering"
+            ]
+          },
+          {
+            "summary": "Marcus is planning a spring trip to Rome with his partner Elena while navigating a career transition offer from his current infrastructure team to the alignment safety team at Anthropic.",
+            "importance": 0.8,
+            "tags": [
+              "career_decision",
+              "personal_life",
+              "travel"
+            ]
+          },
+          {
+            "summary": "Marcus has decided to proceed with his team transfer and confirmed travel plans for his upcoming trip to Rome with Elena.",
+            "importance": 0.8,
+            "tags": [
+              "career_decision",
+              "travel",
+              "personal_life"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Elena",
+      "result": {
+        "found": true,
+        "node": {
+          "key": "PERSON::elena",
+          "name": "Elena",
+          "kind": "PERSON",
+          "properties": {},
+          "aliases": [
+            "Elena"
+          ]
+        },
+        "relationships": [
+          {
+            "source": "PERSON::marcus",
+            "relation": "WORKS_AT",
+            "target": "ORG::anthropic",
+            "strength": 100.0,
+            "snippet": "I'm Marcus, I'm a software engineer at Anthropic — I work on inference infrastructure, mostly making the models serve faster."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "WORKS_ON",
+            "target": "TOPIC::inference_infrastructure",
+            "strength": 100.0,
+            "snippet": "I'm Marcus, I'm a software engineer at Anthropic — I work on inference infrastructure, mostly making the models serve faster."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "HAS_MANAGER",
+            "target": "PERSON::dana",
+            "strength": 100.0,
+            "snippet": "It's good but intense. My manager Dana is great but the on-call rotation is brutal — I had three pages last night."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "WORKS_WITH",
+            "target": "PERSON::wei",
+            "strength": 100.0,
+            "snippet": "My manager Dana is great but the on-call rotation is brutal — I had three pages last night. My teammate Wei usually covers for me but he's on vacation."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "STRUGGLES_WITH",
+            "target": "THING::on_call_rotation",
+            "strength": 100.0,
+            "snippet": "It's good but intense. My manager Dana is great but the on-call rotation is brutal — I had three pages last night."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "IS_INTERESTED_IN",
+            "target": "TOPIC::roman_empire",
+            "strength": 100.0,
+            "snippet": "On a totally different note — the way I unwind is reading about the Roman empire. Kind of obsessively, honestly. My friend Priya got me into it a couple years ago."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "IS_FRIENDS_WITH",
+            "target": "PERSON::priya",
+            "strength": 100.0,
+            "snippet": "On a totally different note — the way I unwind is reading about the Roman empire. Kind of obsessively, honestly. My friend Priya got me into it a couple years ago."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "IS_FASCINATED_BY",
+            "target": "EVENT::crisis_of_the_third_century",
+            "strength": 100.0,
+            "snippet": "Right now I'm fascinated by the Crisis of the Third Century — how Rome almost collapsed and then Diocletian basically rebuilt the whole administrative system. I find the tetrarchy genuinely brilliant."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "AGREES_WITH_ON_HISTORY",
+            "target": "PERSON::priya",
+            "strength": 100.0,
+            "snippet": "Priya argues it just delayed it. I think I'm coming around to her view actually."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "HAS_PARTNER",
+            "target": "PERSON::elena",
+            "strength": 100.0,
+            "snippet": "Something's been on my mind. My partner Elena and I are planning a trip to Rome next spring — first big trip together."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "PLANS_TO_VISIT",
+            "target": "PLACE::rome",
+            "strength": 100.0,
+            "snippet": "Something's been on my mind. My partner Elena and I are planning a trip to Rome next spring — first big trip together. I'm really excited but also nervous about taking the time off."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "VALUES_WORK",
+            "target": "ORG::alignment_safety_team",
+            "strength": 1.0,
+            "snippet": "I think deep down I want the safety role. The infrastructure work is comfortable but the safety mission is why I joined Anthropic in the first place. I'm just scared of the change."
+          },
+          {
+            "source": "ORG::alignment_safety_team",
+            "relation": "PART_OF",
+            "target": "ORG::anthropic",
+            "strength": 100.0,
+            "snippet": "And there's a work thing tangled up in it. I got offered a transfer to the alignment safety team at Anthropic. It's the work I find most meaningful, but it'd mean leaving Dana's team and probably more uncertainty."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "PLANS_TO_TRANSFER_TO",
+            "target": "ORG::alignment_safety_team",
+            "strength": 100.0,
+            "snippet": "User: Yeah, the team transfer. I think I'm going to go for it. Also Elena and I booked the flights for the trip, so that's locked in now!"
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "HAS_CONFIRMED_TRIP_WITH",
+            "target": "PERSON::elena",
+            "strength": 100.0,
+            "snippet": "User: Yeah, the team transfer. I think I'm going to go for it. Also Elena and I booked the flights for the trip, so that's locked in now!"
+          }
+        ],
+        "episodes": [
+          {
+            "summary": "Marcus discussed his deep interest in Roman history, specifically the Crisis of the Third Century and Diocletian's Tetrarchy, sharing that his friend Priya influenced his perspective on the decline of the empire.",
+            "importance": 0.5,
+            "tags": [
+              "personal_interest",
+              "history"
+            ]
+          },
+          {
+            "summary": "Marcus, a software engineer at Anthropic working on inference infrastructure, is experiencing burnout due to an intense and brutal on-call rotation while his teammate Wei is on vacation.",
+            "importance": 0.7,
+            "tags": [
+              "career",
+              "work_life_balance",
+              "engineering"
+            ]
+          },
+          {
+            "summary": "Marcus is planning a spring trip to Rome with his partner Elena while navigating a career transition offer from his current infrastructure team to the alignment safety team at Anthropic.",
+            "importance": 0.8,
+            "tags": [
+              "career_decision",
+              "personal_life",
+              "travel"
+            ]
+          },
+          {
+            "summary": "Marcus has decided to proceed with his team transfer and confirmed travel plans for his upcoming trip to Rome with Elena.",
+            "importance": 0.8,
+            "tags": [
+              "career_decision",
+              "travel",
+              "personal_life"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Diocletian",
+      "result": {
+        "found": true,
+        "node": {
+          "key": "PERSON::diocletian",
+          "name": "Diocletian",
+          "kind": "PERSON",
+          "properties": {},
+          "aliases": []
+        },
+        "relationships": [
+          {
+            "source": "THING::tetrarchy",
+            "relation": "CREATED_BY",
+            "target": "PERSON::diocletian",
+            "strength": 100.0,
+            "snippet": "Right now I'm fascinated by the Crisis of the Third Century — how Rome almost collapsed and then Diocletian basically rebuilt the whole administrative system. I find the tetrarchy genuinely brilliant."
+          }
+        ],
+        "episodes": [
+          {
+            "summary": "Marcus discussed his deep interest in Roman history, specifically the Crisis of the Third Century and Diocletian's Tetrarchy, sharing that his friend Priya influenced his perspective on the decline of the empire.",
+            "importance": 0.5,
+            "tags": [
+              "personal_interest",
+              "history"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Anthropic",
+      "result": {
+        "found": true,
+        "node": {
+          "key": "ORG::anthropic",
+          "name": "Anthropic",
+          "kind": "ORG",
+          "properties": {},
+          "aliases": [
+            "Anthropic"
+          ]
+        },
+        "relationships": [
+          {
+            "source": "PERSON::marcus",
+            "relation": "WORKS_AT",
+            "target": "ORG::anthropic",
+            "strength": 100.0,
+            "snippet": "I'm Marcus, I'm a software engineer at Anthropic — I work on inference infrastructure, mostly making the models serve faster."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "WORKS_ON",
+            "target": "TOPIC::inference_infrastructure",
+            "strength": 100.0,
+            "snippet": "I'm Marcus, I'm a software engineer at Anthropic — I work on inference infrastructure, mostly making the models serve faster."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "HAS_MANAGER",
+            "target": "PERSON::dana",
+            "strength": 100.0,
+            "snippet": "It's good but intense. My manager Dana is great but the on-call rotation is brutal — I had three pages last night."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "WORKS_WITH",
+            "target": "PERSON::wei",
+            "strength": 100.0,
+            "snippet": "My manager Dana is great but the on-call rotation is brutal — I had three pages last night. My teammate Wei usually covers for me but he's on vacation."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "STRUGGLES_WITH",
+            "target": "THING::on_call_rotation",
+            "strength": 100.0,
+            "snippet": "It's good but intense. My manager Dana is great but the on-call rotation is brutal — I had three pages last night."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "IS_INTERESTED_IN",
+            "target": "TOPIC::roman_empire",
+            "strength": 100.0,
+            "snippet": "On a totally different note — the way I unwind is reading about the Roman empire. Kind of obsessively, honestly. My friend Priya got me into it a couple years ago."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "IS_FRIENDS_WITH",
+            "target": "PERSON::priya",
+            "strength": 100.0,
+            "snippet": "On a totally different note — the way I unwind is reading about the Roman empire. Kind of obsessively, honestly. My friend Priya got me into it a couple years ago."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "IS_FASCINATED_BY",
+            "target": "EVENT::crisis_of_the_third_century",
+            "strength": 100.0,
+            "snippet": "Right now I'm fascinated by the Crisis of the Third Century — how Rome almost collapsed and then Diocletian basically rebuilt the whole administrative system. I find the tetrarchy genuinely brilliant."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "AGREES_WITH_ON_HISTORY",
+            "target": "PERSON::priya",
+            "strength": 100.0,
+            "snippet": "Priya argues it just delayed it. I think I'm coming around to her view actually."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "HAS_PARTNER",
+            "target": "PERSON::elena",
+            "strength": 100.0,
+            "snippet": "Something's been on my mind. My partner Elena and I are planning a trip to Rome next spring — first big trip together."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "PLANS_TO_VISIT",
+            "target": "PLACE::rome",
+            "strength": 100.0,
+            "snippet": "Something's been on my mind. My partner Elena and I are planning a trip to Rome next spring — first big trip together. I'm really excited but also nervous about taking the time off."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "VALUES_WORK",
+            "target": "ORG::alignment_safety_team",
+            "strength": 1.0,
+            "snippet": "I think deep down I want the safety role. The infrastructure work is comfortable but the safety mission is why I joined Anthropic in the first place. I'm just scared of the change."
+          },
+          {
+            "source": "ORG::alignment_safety_team",
+            "relation": "PART_OF",
+            "target": "ORG::anthropic",
+            "strength": 100.0,
+            "snippet": "And there's a work thing tangled up in it. I got offered a transfer to the alignment safety team at Anthropic. It's the work I find most meaningful, but it'd mean leaving Dana's team and probably more uncertainty."
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "PLANS_TO_TRANSFER_TO",
+            "target": "ORG::alignment_safety_team",
+            "strength": 100.0,
+            "snippet": "User: Yeah, the team transfer. I think I'm going to go for it. Also Elena and I booked the flights for the trip, so that's locked in now!"
+          },
+          {
+            "source": "PERSON::marcus",
+            "relation": "HAS_CONFIRMED_TRIP_WITH",
+            "target": "PERSON::elena",
+            "strength": 100.0,
+            "snippet": "User: Yeah, the team transfer. I think I'm going to go for it. Also Elena and I booked the flights for the trip, so that's locked in now!"
+          }
+        ],
+        "episodes": [
+          {
+            "summary": "Marcus discussed his deep interest in Roman history, specifically the Crisis of the Third Century and Diocletian's Tetrarchy, sharing that his friend Priya influenced his perspective on the decline of the empire.",
+            "importance": 0.5,
+            "tags": [
+              "personal_interest",
+              "history"
+            ]
+          },
+          {
+            "summary": "Marcus, a software engineer at Anthropic working on inference infrastructure, is experiencing burnout due to an intense and brutal on-call rotation while his teammate Wei is on vacation.",
+            "importance": 0.7,
+            "tags": [
+              "career",
+              "work_life_balance",
+              "engineering"
+            ]
+          },
+          {
+            "summary": "Marcus is planning a spring trip to Rome with his partner Elena while navigating a career transition offer from his current infrastructure team to the alignment safety team at Anthropic.",
+            "importance": 0.8,
+            "tags": [
+              "career_decision",
+              "personal_life",
+              "travel"
+            ]
+          },
+          {
+            "summary": "Marcus has decided to proceed with his team transfer and confirmed travel plans for his upcoming trip to Rome with Elena.",
+            "importance": 0.8,
+            "tags": [
+              "career_decision",
+              "travel",
+              "personal_life"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "key": "PERSON::marcus",
+        "name": "Marcus",
+        "kind": "PERSON",
+        "aliases": [
+          "Marcus"
+        ],
+        "properties": {}
+      },
+      {
+        "key": "ORG::anthropic",
+        "name": "Anthropic",
+        "kind": "ORG",
+        "aliases": [
+          "Anthropic"
+        ],
+        "properties": {}
+      },
+      {
+        "key": "TOPIC::inference_infrastructure",
+        "name": "Inference Infrastructure",
+        "kind": "TOPIC",
+        "aliases": [],
+        "properties": {}
+      },
+      {
+        "key": "PERSON::dana",
+        "name": "Dana",
+        "kind": "PERSON",
+        "aliases": [
+          "manager"
+        ],
+        "properties": {}
+      },
+      {
+        "key": "PERSON::wei",
+        "name": "Wei",
+        "kind": "PERSON",
+        "aliases": [
+          "teammate"
+        ],
+        "properties": {}
+      },
+      {
+        "key": "THING::on_call_rotation",
+        "name": "On-call Rotation",
+        "kind": "THING",
+        "aliases": [],
+        "properties": {}
+      },
+      {
+        "key": "TOPIC::roman_empire",
+        "name": "Roman Empire",
+        "kind": "TOPIC",
+        "aliases": [],
+        "properties": {}
+      },
+      {
+        "key": "PERSON::priya",
+        "name": "Priya",
+        "kind": "PERSON",
+        "aliases": [],
+        "properties": {}
+      },
+      {
+        "key": "EVENT::crisis_of_the_third_century",
+        "name": "Crisis of the Third Century",
+        "kind": "EVENT",
+        "aliases": [],
+        "properties": {}
+      },
+      {
+        "key": "PERSON::diocletian",
+        "name": "Diocletian",
+        "kind": "PERSON",
+        "aliases": [],
+        "properties": {}
+      },
+      {
+        "key": "THING::tetrarchy",
+        "name": "Tetrarchy",
+        "kind": "THING",
+        "aliases": [],
+        "properties": {}
+      },
+      {
+        "key": "PERSON::elena",
+        "name": "Elena",
+        "kind": "PERSON",
+        "aliases": [
+          "Elena"
+        ],
+        "properties": {}
+      },
+      {
+        "key": "PLACE::rome",
+        "name": "Rome",
+        "kind": "PLACE",
+        "aliases": [
+          "Eternal City",
+          "Rome"
+        ],
+        "properties": {}
+      },
+      {
+        "key": "ORG::alignment_safety_team",
+        "name": "Alignment Safety Team",
+        "kind": "ORG",
+        "aliases": [
+          "Alignment Safety Team"
+        ],
+        "properties": {}
+      }
+    ],
+    "edges": [
+      {
+        "edge": "PERSON::marcus -[WORKS_AT]-> ORG::anthropic",
+        "stability": "stable",
+        "strength": 100.0,
+        "confidence": 0.95,
+        "snippet": "I'm Marcus, I'm a software engineer at Anthropic — I work on inference infrastructure, mostly making the models serve faster."
+      },
+      {
+        "edge": "PERSON::marcus -[WORKS_ON]-> TOPIC::inference_infrastructure",
+        "stability": "stable",
+        "strength": 100.0,
+        "confidence": 0.9,
+        "snippet": "I'm Marcus, I'm a software engineer at Anthropic — I work on inference infrastructure, mostly making the models serve faster."
+      },
+      {
+        "edge": "PERSON::marcus -[HAS_MANAGER]-> PERSON::dana",
+        "stability": "stable",
+        "strength": 100.0,
+        "confidence": 0.95,
+        "snippet": "It's good but intense. My manager Dana is great but the on-call rotation is brutal — I had three pages last night."
+      },
+      {
+        "edge": "PERSON::marcus -[WORKS_WITH]-> PERSON::wei",
+        "stability": "stable",
+        "strength": 100.0,
+        "confidence": 0.9,
+        "snippet": "My manager Dana is great but the on-call rotation is brutal — I had three pages last night. My teammate Wei usually covers for me but he's on vacation."
+      },
+      {
+        "edge": "PERSON::marcus -[STRUGGLES_WITH]-> THING::on_call_rotation",
+        "stability": "mutable",
+        "strength": 100.0,
+        "confidence": 0.9,
+        "snippet": "It's good but intense. My manager Dana is great but the on-call rotation is brutal — I had three pages last night."
+      },
+      {
+        "edge": "PERSON::marcus -[IS_INTERESTED_IN]-> TOPIC::roman_empire",
+        "stability": "stable",
+        "strength": 100.0,
+        "confidence": 0.85,
+        "snippet": "On a totally different note — the way I unwind is reading about the Roman empire. Kind of obsessively, honestly. My friend Priya got me into it a couple years ago."
+      },
+      {
+        "edge": "PERSON::marcus -[IS_FRIENDS_WITH]-> PERSON::priya",
+        "stability": "stable",
+        "strength": 100.0,
+        "confidence": 0.85,
+        "snippet": "On a totally different note — the way I unwind is reading about the Roman empire. Kind of obsessively, honestly. My friend Priya got me into it a couple years ago."
+      },
+      {
+        "edge": "PERSON::marcus -[IS_FASCINATED_BY]-> EVENT::crisis_of_the_third_century",
+        "stability": "stable",
+        "strength": 100.0,
+        "confidence": 0.85,
+        "snippet": "Right now I'm fascinated by the Crisis of the Third Century — how Rome almost collapsed and then Diocletian basically rebuilt the whole administrative system. I find the tetrarchy genuinely brilliant."
+      },
+      {
+        "edge": "THING::tetrarchy -[CREATED_BY]-> PERSON::diocletian",
+        "stability": "immutable",
+        "strength": 100.0,
+        "confidence": 0.85,
+        "snippet": "Right now I'm fascinated by the Crisis of the Third Century — how Rome almost collapsed and then Diocletian basically rebuilt the whole administrative system. I find the tetrarchy genuinely brilliant."
+      },
+      {
+        "edge": "PERSON::marcus -[AGREES_WITH_ON_HISTORY]-> PERSON::priya",
+        "stability": "stable",
+        "strength": 100.0,
+        "confidence": 0.85,
+        "snippet": "Priya argues it just delayed it. I think I'm coming around to her view actually."
+      },
+      {
+        "edge": "PERSON::marcus -[HAS_PARTNER]-> PERSON::elena",
+        "stability": "stable",
+        "strength": 100.0,
+        "confidence": 0.85,
+        "snippet": "Something's been on my mind. My partner Elena and I are planning a trip to Rome next spring — first big trip together."
+      },
+      {
+        "edge": "PERSON::marcus -[PLANS_TO_VISIT]-> PLACE::rome",
+        "stability": "time_bound",
+        "strength": 100.0,
+        "confidence": 0.85,
+        "snippet": "Something's been on my mind. My partner Elena and I are planning a trip to Rome next spring — first big trip together. I'm really excited but also nervous about taking the time off."
+      },
+      {
+        "edge": "PERSON::marcus -[VALUES_WORK]-> ORG::alignment_safety_team",
+        "stability": "stable",
+        "strength": 1.0,
+        "confidence": 0.85,
+        "snippet": "I think deep down I want the safety role. The infrastructure work is comfortable but the safety mission is why I joined Anthropic in the first place. I'm just scared of the change."
+      },
+      {
+        "edge": "ORG::alignment_safety_team -[PART_OF]-> ORG::anthropic",
+        "stability": "stable",
+        "strength": 100.0,
+        "confidence": 0.85,
+        "snippet": "And there's a work thing tangled up in it. I got offered a transfer to the alignment safety team at Anthropic. It's the work I find most meaningful, but it'd mean leaving Dana's team and probably more uncertainty."
+      },
+      {
+        "edge": "PERSON::marcus -[PLANS_TO_TRANSFER_TO]-> ORG::alignment_safety_team",
+        "stability": "stable",
+        "strength": 100.0,
+        "confidence": 0.85,
+        "snippet": "User: Yeah, the team transfer. I think I'm going to go for it. Also Elena and I booked the flights for the trip, so that's locked in now!"
+      },
+      {
+        "edge": "PERSON::marcus -[HAS_CONFIRMED_TRIP_WITH]-> PERSON::elena",
+        "stability": "stable",
+        "strength": 100.0,
+        "confidence": 0.85,
+        "snippet": "User: Yeah, the team transfer. I think I'm going to go for it. Also Elena and I booked the flights for the trip, so that's locked in now!"
+      }
+    ],
+    "episodes": [
+      {
+        "summary": "Marcus, a software engineer at Anthropic working on inference infrastructure, is experiencing burnout due to an intense and brutal on-call rotation while his teammate Wei is on vacation.",
+        "importance": 0.7,
+        "tags": [
+          "career",
+          "work_life_balance",
+          "engineering"
+        ]
+      },
+      {
+        "summary": "Marcus discussed his deep interest in Roman history, specifically the Crisis of the Third Century and Diocletian's Tetrarchy, sharing that his friend Priya influenced his perspective on the decline of the empire.",
+        "importance": 0.5,
+        "tags": [
+          "personal_interest",
+          "history"
+        ]
+      },
+      {
+        "summary": "Marcus is planning a spring trip to Rome with his partner Elena while navigating a career transition offer from his current infrastructure team to the alignment safety team at Anthropic.",
+        "importance": 0.8,
+        "tags": [
+          "career_decision",
+          "personal_life",
+          "travel"
+        ]
+      },
+      {
+        "summary": "Marcus has decided to proceed with his team transfer and confirmed travel plans for his upcoming trip to Rome with Elena.",
+        "importance": 0.8,
+        "tags": [
+          "career_decision",
+          "travel",
+          "personal_life"
+        ]
+      }
+    ]
+  }
+}

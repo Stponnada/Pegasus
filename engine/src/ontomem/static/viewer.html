@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Memory — ontomem viewer</title>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --surface-2:      #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --line:           #e1e0d9;
+    --border:         rgba(11,11,11,0.10);
+    --accent:         #2a78d6;
+    --dormant:        #c3c2b7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --surface-2:      #0d0d0d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --line:           #2c2c2a;
+      --border:         rgba(255,255,255,0.10);
+      --accent:         #3987e5;
+      --dormant:        #383835;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--surface-2); color: var(--text-primary);
+    height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+  }
+  header {
+    padding: 10px 16px; border-bottom: 1px solid var(--line);
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--surface-1);
+  }
+  header h1 { font-size: 15px; margin: 0 12px 0 0; font-weight: 600; }
+  header h1 small { color: var(--text-muted); font-weight: 400; }
+  input#q {
+    flex: 1; min-width: 220px; background: var(--surface-2); border: 1px solid var(--line);
+    color: var(--text-primary); padding: 7px 10px; border-radius: 6px; font-size: 13px;
+  }
+  button {
+    background: var(--surface-2); border: 1px solid var(--line); color: var(--text-primary);
+    padding: 7px 12px; border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  main { flex: 1; display: flex; min-height: 0; }
+  #graph { flex: 1; min-width: 0; background: var(--surface-2); }
+  aside {
+    width: 380px; border-left: 1px solid var(--line); display: flex; flex-direction: column;
+    background: var(--surface-1); overflow-y: auto;
+  }
+  .panel { padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: 0 0 8px; }
+  .empty { color: var(--text-muted); font-style: italic; font-size: 13px; }
+  .kv { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; padding: 2px 0; }
+  .kv .k { color: var(--text-secondary); }
+  .edge-row { padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px; }
+  .edge-row:first-child { border-top: none; }
+  .edge-row .rel { font-weight: 600; }
+  .edge-row .meta { color: var(--text-muted); font-size: 11px; margin-top: 2px; }
+  .edge-row .snippet { color: var(--text-secondary); font-style: italic; margin-top: 4px; font-size: 12.5px; }
+  .edge-row.dormant { opacity: 0.5; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+  .legend .item { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text-secondary); }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  pre#readout {
+    white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; line-height: 1.5; margin: 0; color: var(--text-secondary);
+  }
+  footer { padding: 6px 14px; border-top: 1px solid var(--line); font-size: 11px; color: var(--text-muted); background: var(--surface-1); }
+
+  .live-h2 { display: flex; align-items: center; justify-content: space-between; }
+  .live-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex-shrink: 0;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+  .live-message {
+    font-size: 12px; color: var(--text-muted); font-style: italic; margin-bottom: 8px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--line);
+  }
+  .live-item { padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px; }
+  .live-item:first-of-type { border-top: none; }
+  .live-item .rel-line { font-weight: 600; }
+  .live-item .rel-line b { font-weight: 700; color: var(--accent); }
+  .live-item .ctx { color: var(--text-secondary); font-style: italic; margin-top: 4px; font-size: 12.5px; }
+  .live-item .ctx-label { color: var(--text-muted); font-style: normal; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-right: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Memory <small>— live ontology graph</small></h1>
+  <input id="q" placeholder="Ask something to see what would be recalled…" />
+  <button id="ask" class="primary">Ask</button>
+  <button id="refresh">Refresh</button>
+</header>
+<main>
+  <div id="graph"></div>
+  <aside>
+    <div class="panel" id="live-panel">
+      <h2 class="live-h2"><span>Live — what OpenAgent just injected</span><span class="live-dot" title="polling"></span></h2>
+      <div class="empty" id="live-empty">Chat in OpenAgent — whatever gets recalled for each of your messages shows up here, live.</div>
+      <div class="live-message" id="live-message" style="display:none"></div>
+      <div id="live-items"></div>
+    </div>
+    <div class="panel">
+      <h2>Kinds</h2>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="panel" id="detail">
+      <h2>Selection</h2>
+      <div class="empty">Click a node to see its properties, edges, and snippets.</div>
+    </div>
+    <div class="panel" id="readout-panel" style="display:none">
+      <h2>Injected context for a manual query</h2>
+      <pre id="readout"></pre>
+    </div>
+  </aside>
+</main>
+<footer id="meta"></footer>
+
+<script>
+// Fixed-order categorical palette (dataviz skill, 8 slots -> the 8 node kinds).
+// A network layout can put any two kinds adjacent, so the worst-case pairs
+// (e.g. green/orange) fall below the full CVD-safe floor at this count; the
+// mitigation the skill prescribes for that case is secondary encoding, which
+// this page always applies — every node keeps a visible text label and the
+// kind is restated as text in the legend and the click-through detail panel,
+// so identity is never carried by hue alone.
+const KIND_COLOR = {
+  PERSON:     { light: "#2a78d6", dark: "#3987e5" },
+  ORG:        { light: "#eb6834", dark: "#d95926" },
+  PLACE:      { light: "#1baf7a", dark: "#199e70" },
+  EVENT:      { light: "#eda100", dark: "#c98500" },
+  TOPIC:      { light: "#e87ba4", dark: "#d55181" },
+  PREFERENCE: { light: "#008300", dark: "#008300" },
+  THING:      { light: "#4a3aa7", dark: "#9085e9" },
+  OTHER:      { light: "#e34948", dark: "#e66767" },
+};
+const isDark = () => window.matchMedia("(prefers-color-scheme: dark)").matches;
+const kindColor = (kind) => (KIND_COLOR[kind] || KIND_COLOR.OTHER)[isDark() ? "dark" : "light"];
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+let network, nodesDS, edgesDS, graph;
+
+function nodeSpec(n) {
+  return {
+    id: n.id, label: n.label, shape: "dot", size: 14,
+    color: { background: kindColor(n.kind), border: cssVar("--border"),
+             highlight: { background: kindColor(n.kind), border: cssVar("--accent") } },
+    font: { color: cssVar("--text-primary"), size: 12 },
+    borderWidth: 1.5,
+  };
+}
+function edgeSpec(e) {
+  const faded = e.dormant || !!e.superseded_by;
+  return {
+    id: e.id, from: e.from, to: e.to, arrows: "to", label: e.relation,
+    dashes: faded,
+    color: { color: cssVar("--text-muted"), opacity: faded ? 0.35 : Math.max(0.35, e.strength / 100) },
+    width: faded ? 1 : Math.max(1, Math.min(4, e.strength / 30)),
+    font: { color: cssVar("--text-muted"), size: 9, strokeWidth: 3, strokeColor: cssVar("--surface-2"), align: "middle" },
+    smooth: { type: "dynamic" },
+  };
+}
+
+function renderLegend() {
+  const el = document.getElementById("legend");
+  el.innerHTML = "";
+  for (const kind of Object.keys(KIND_COLOR)) {
+    const item = document.createElement("span");
+    item.className = "item";
+    item.innerHTML = `<span class="dot" style="background:${kindColor(kind)}"></span>${kind}`;
+    el.appendChild(item);
+  }
+}
+
+function nodeName(id) {
+  const n = graph.nodes.find((x) => x.id === id);
+  return n ? n.label : id;
+}
+
+function showNodeDetail(id) {
+  const node = graph.nodes.find((n) => n.id === id);
+  const panel = document.getElementById("detail");
+  if (!node) { panel.innerHTML = '<h2>Selection</h2><div class="empty">Click a node to see its properties, edges, and snippets.</div>'; return; }
+
+  const outgoing = graph.edges.filter((e) => e.from === id);
+  const incoming = graph.edges.filter((e) => e.to === id);
+  const propsHtml = Object.entries(node.properties || {})
+    .map(([k, v]) => `<div class="kv"><span class="k">${k}</span><span>${v}</span></div>`).join("");
+  const edgeHtml = (e, direction) => {
+    const other = direction === "out" ? e.to : e.from;
+    const arrow = direction === "out" ? "→" : "←";
+    return `<div class="edge-row ${e.dormant ? "dormant" : ""}">
+      <div class="rel">${arrow} ${e.relation} ${arrow} ${nodeName(other)}</div>
+      <div class="meta">strength ${e.strength.toFixed(1)} · confidence ${e.confidence} · ${e.stability}${e.dormant ? " · dormant" : ""}${e.superseded_by ? " · superseded by " + e.superseded_by : ""}</div>
+      ${e.snippet ? `<div class="snippet">"${e.snippet}"</div>` : ""}
+    </div>`;
+  };
+
+  panel.innerHTML = `
+    <h2>${node.kind}</h2>
+    <div class="kv"><span class="k">name</span><span>${node.label}</span></div>
+    <div class="kv"><span class="k">confidence</span><span>${node.confidence}</span></div>
+    ${node.aliases && node.aliases.length ? `<div class="kv"><span class="k">aliases</span><span>${node.aliases.join(", ")}</span></div>` : ""}
+    ${propsHtml}
+    <div style="margin-top:10px;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">
+      ${outgoing.length + incoming.length} edge(s)
+    </div>
+    ${outgoing.map((e) => edgeHtml(e, "out")).join("")}
+    ${incoming.map((e) => edgeHtml(e, "in")).join("")}
+  `;
+}
+
+async function loadGraph() {
+  graph = await (await fetch("/graph")).json();
+  nodesDS = new vis.DataSet(graph.nodes.map(nodeSpec));
+  edgesDS = new vis.DataSet(graph.edges.map(edgeSpec));
+  if (!network) {
+    network = new vis.Network(document.getElementById("graph"), { nodes: nodesDS, edges: edgesDS }, {
+      physics: { barnesHut: { gravitationalConstant: -9000, springLength: 150, springConstant: 0.04, avoidOverlap: 0.4 }, stabilization: { iterations: 300 } },
+      interaction: { hover: true, tooltipDelay: 120 },
+      layout: { improvedLayout: true },
+    });
+    network.once("stabilizationIterationsDone", () => network.setOptions({ physics: false }));
+    network.on("click", (params) => {
+      if (params.nodes.length) showNodeDetail(params.nodes[0]);
+    });
+  } else {
+    nodesDS.clear(); nodesDS.add(graph.nodes.map(nodeSpec));
+    edgesDS.clear(); edgesDS.add(graph.edges.map(edgeSpec));
+  }
+  document.getElementById("meta").textContent = `${graph.nodes.length} nodes · ${graph.edges.length} edges`;
+}
+
+function highlightFromTrace(trace) {
+  if (!nodesDS) return;
+  const fired = trace && trace.fired ? trace.fired : {};
+  const seedIds = new Set((trace && trace.seeds ? trace.seeds : []).map((s) => s.key || s.id || s));
+  nodesDS.update(graph.nodes.map((n) => {
+    const isFired = n.id in fired;
+    const isSeed = seedIds.has(n.id);
+    const base = nodeSpec(n);
+    if (!isFired && !isSeed) return { ...base, color: { ...base.color, background: base.color.background }, opacity: 0.25 };
+    return { ...base, size: isSeed ? 22 : 18, borderWidth: 3,
+      color: { ...base.color, border: isSeed ? "#e3b341" : "#f85149" } };
+  }));
+}
+
+async function askQuery() {
+  const q = document.getElementById("q").value.trim();
+  if (!q) return;
+  const res = await fetch("/read", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: q }),
+  });
+  const result = await res.json();
+  const readoutPanel = document.getElementById("readout-panel");
+  readoutPanel.style.display = "block";
+  document.getElementById("readout").textContent = result.text || "(nothing recalled — the graph stays dark for this message)";
+  highlightFromTrace(result.trace);
+}
+
+// --- live feed: what a REAL OpenAgent conversation is injecting, polled from
+// the engine's cache of its own most recent /read (see Engine.last_read) ---
+function renderLiveInjections(data) {
+  const emptyEl = document.getElementById("live-empty");
+  const msgEl = document.getElementById("live-message");
+  const itemsEl = document.getElementById("live-items");
+  const injections = data.injections || [];
+
+  if (!data.message) {
+    emptyEl.style.display = "block";
+    msgEl.style.display = "none";
+    itemsEl.innerHTML = "";
+    return;
+  }
+  emptyEl.style.display = "none";
+  msgEl.style.display = "block";
+  msgEl.textContent = `"${data.message}"`;
+
+  if (injections.length === 0) {
+    itemsEl.innerHTML = '<div class="empty">Nothing recalled for this message — the graph stayed dark.</div>';
+    return;
+  }
+  itemsEl.innerHTML = injections.map((inj) => `
+    <div class="live-item">
+      <div class="rel-line">Memory: <b>${inj.source}</b> ${inj.relation_phrase} <b>${inj.target}</b></div>
+      ${inj.snippet ? `<div class="ctx"><span class="ctx-label">context</span>"${inj.snippet}"</div>` : ""}
+    </div>
+  `).join("");
+}
+
+let lastLiveMessage = null;
+async function pollLiveRead() {
+  try {
+    const data = await (await fetch("/last_read")).json();
+    if (data.message && data.message !== lastLiveMessage) {
+      lastLiveMessage = data.message;
+      renderLiveInjections(data);
+      highlightFromTrace(data.trace);
+    }
+  } catch (e) {
+    // engine briefly unreachable (e.g. restart) -- next poll retries
+  }
+}
+
+document.getElementById("ask").onclick = askQuery;
+document.getElementById("refresh").onclick = loadGraph;
+document.getElementById("q").addEventListener("keydown", (e) => { if (e.key === "Enter") askQuery(); });
+
+renderLegend();
+loadGraph();
+pollLiveRead();
+setInterval(pollLiveRead, 1500);
+</script>
+</body>
+</html>

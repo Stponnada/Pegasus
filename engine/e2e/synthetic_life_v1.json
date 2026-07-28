@@ -1,0 +1,600 @@
+{
+  "name": "synthetic-life-v1-maya-rao",
+  "sessions": [
+    {
+      "id": "01_identity_and_work",
+      "description": "Cold-start identity, employer, location, and durable project.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "I'm Maya Rao. I live in Pune and work as a product designer at Lattice Labs. I lead the redesign of our analytics dashboard, with a strong focus on accessibility."
+        },
+        {
+          "role": "assistant",
+          "text": "That sounds like a substantial design remit. What part of the accessibility work matters most to you?"
+        },
+        {
+          "role": "user",
+          "text": "Keyboard navigation and screen-reader support. I want those to be first-class requirements, not cleanup work at the end."
+        }
+      ],
+      "expect_graph": {
+        "has_node_any": [["Maya Rao", "Maya"], ["Lattice Labs"], ["Pune"]],
+        "min_edges_created": 2
+      },
+      "probes": [
+        {
+          "id": "employer_direct",
+          "query": "Which company do I work for?",
+          "contains_all": ["Lattice"],
+          "expect_nonempty": true
+        }
+      ]
+    },
+    {
+      "id": "02_work_relationships",
+      "description": "Named manager, colleague, and a recurring operational problem.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "My manager Derek Chen supports the accessibility push, but the release calendar is rough. My teammate Sam Wilson usually helps me test prototypes when deadlines get tight."
+        },
+        {
+          "role": "assistant",
+          "text": "It sounds as though Derek and Sam are important parts of how you get the work shipped."
+        },
+        {
+          "role": "user",
+          "text": "They are. Derek protects the scope, and Sam catches interaction bugs before research sessions."
+        }
+      ],
+      "expect_graph": {
+        "has_node_any": [["Derek Chen"], ["Sam Wilson"]],
+        "min_edges_created": 2
+      },
+      "probes": [
+        {
+          "id": "manager_relation",
+          "query": "Who is my manager?",
+          "contains_all": ["Derek"],
+          "expect_nonempty": true
+        }
+      ]
+    },
+    {
+      "id": "03_hobby_and_preference",
+      "description": "Durable hobby and friend, plus an initial negative preference that later changes.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Outside work I take pottery classes at the Clay Room every Saturday with my friend Nisha Kapoor. Ceramics is how I decompress. I have always hated running, though; it feels monotonous to me."
+        },
+        {
+          "role": "assistant",
+          "text": "Pottery gives you a slower, tactile counterweight to product work."
+        },
+        {
+          "role": "user",
+          "text": "Exactly. Nisha and I have kept the Saturday ritual going for nearly two years."
+        }
+      ],
+      "expect_graph": {
+        "has_node_any": [["Nisha Kapoor"], ["Clay Room"], ["Ceramics", "Pottery"], ["Running"]],
+        "min_edges_created": 3
+      },
+      "probes": [
+        {
+          "id": "weekend_hobby",
+          "query": "What do Nisha and I do on Saturdays?",
+          "contains_any": ["pottery", "ceramics", "Clay Room"],
+          "contains_all": ["Nisha"],
+          "expect_nonempty": true
+        }
+      ]
+    },
+    {
+      "id": "04_partner_and_home",
+      "description": "One-to-one partner relationship and household details.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "My partner is Arjun Mehta. We have lived together in Pune for three years, and our cat Pixel behaves as if the apartment belongs entirely to her."
+        },
+        {
+          "role": "assistant",
+          "text": "Pixel sounds like the household authority. What does Arjun do?"
+        },
+        {
+          "role": "user",
+          "text": "Arjun is an independent documentary filmmaker. His current film is about stepwells in western India."
+        }
+      ],
+      "expect_graph": {
+        "has_node_any": [["Arjun Mehta"], ["Pixel"], ["Stepwells", "stepwells"]],
+        "min_edges_created": 3
+      },
+      "probes": [
+        {
+          "id": "partner_name",
+          "query": "What is my partner's name?",
+          "contains_all": ["Arjun"],
+          "expect_nonempty": true
+        }
+      ]
+    },
+    {
+      "id": "05_temporary_trip",
+      "description": "Time-bound plan with concrete dates and companions.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Arjun and I are going to Kochi next Friday for four days so he can interview a conservation architect. This is a confirmed trip, but it is just a short visit."
+        },
+        {
+          "role": "assistant",
+          "text": "That sounds useful for his film and a welcome change of scene for you."
+        }
+      ],
+      "expect_graph": {
+        "has_node_any": [["Kochi"]],
+        "min_edges_created": 1
+      },
+      "probes": [
+        {
+          "id": "upcoming_trip",
+          "query": "Where am I travelling next week?",
+          "contains_all": ["Kochi"],
+          "expect_nonempty": true
+        }
+      ]
+    },
+    {
+      "id": "06_undurable_small_talk",
+      "description": "Passing weather and lunch details should not add graph concepts.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "It rained this afternoon, I made masala chai, and I had a paneer sandwich for lunch. Nothing important, just chatting while I wait for a cab."
+        },
+        {
+          "role": "assistant",
+          "text": "A rainy-day chai sounds pleasant. I hope the cab arrives soon."
+        }
+      ],
+      "expect_graph": {
+        "max_nodes_created": 0
+      },
+      "probes": [
+        {
+          "id": "unrelated_football",
+          "query": "Which football club do I support?",
+          "expect_empty": true
+        }
+      ]
+    },
+    {
+      "id": "07_rejected_hypothetical",
+      "description": "A named hypothetical employer is explicitly not a plan.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "If I ever left Lattice Labs, a place like Orbit AI might be interesting, but that is purely hypothetical. I am not applying there and I have made no plan to leave."
+        },
+        {
+          "role": "assistant",
+          "text": "Understood—you are exploring an example, not announcing a move."
+        },
+        {
+          "role": "user",
+          "text": "Right. Please do not treat Orbit as something I intend to do."
+        }
+      ],
+      "expect_graph": {
+        "lacks_node_terms": ["Orbit AI", "Orbit"]
+      },
+      "probes": [
+        {
+          "id": "no_false_job_plan",
+          "query": "Am I applying to Orbit AI?",
+          "excludes": ["Orbit"],
+          "expect_empty": true
+        }
+      ]
+    },
+    {
+      "id": "08_acknowledged_assistant_concept",
+      "description": "Exercises the explicit acknowledged-agent-concept exception.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "The release lead wants to postpone screen-reader testing again, and I am pushing back even though it makes planning harder."
+        },
+        {
+          "role": "assistant",
+          "text": "It sounds like accessibility is not merely a project requirement for you; it is a core professional value."
+        },
+        {
+          "role": "user",
+          "text": "Exactly, that's right. Accessibility is a core professional value for me."
+        }
+      ],
+      "expect_graph": {
+        "has_node_any": [["Accessibility"]]
+      },
+      "probes": [
+        {
+          "id": "professional_value",
+          "query": "What principle do I refuse to compromise at work?",
+          "contains_all": ["accessibility"],
+          "expect_nonempty": true
+        }
+      ]
+    },
+    {
+      "id": "09_promotion_dilemma",
+      "description": "A durable but unresolved career decision.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Derek offered me a promotion to design manager. I am considering it seriously, but I worry that managing six people would pull me away from hands-on accessibility design."
+        },
+        {
+          "role": "assistant",
+          "text": "The choice is between broader influence and the craft work that currently gives you energy."
+        },
+        {
+          "role": "user",
+          "text": "Yes. I have not decided yet, but this is the main career decision I am wrestling with."
+        }
+      ],
+      "expect_graph": {
+        "has_node_any": [["Design Manager", "design manager"]],
+        "min_edges_created": 1
+      },
+      "probes": [
+        {
+          "id": "abstract_career_callback",
+          "query": "Remind me about the career crossroads I've been wrestling with.",
+          "contains_any": ["design manager", "promotion", "managing six people"],
+          "expect_nonempty": true
+        }
+      ]
+    },
+    {
+      "id": "10_two_people_called_sam",
+      "description": "A second Sam must remain distinct from colleague Sam Wilson.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "I met my old university friend Samuel Iyer for coffee. We have always called him Sam, but he is not Sam Wilson from work. Samuel Iyer is a marine biologist in Goa."
+        },
+        {
+          "role": "assistant",
+          "text": "So there are two distinct Sams in your life: Sam Wilson at Lattice and Samuel Iyer, your university friend in Goa."
+        },
+        {
+          "role": "user",
+          "text": "Correct. They are completely different people and have never met."
+        }
+      ],
+      "expect_graph": {
+        "has_node_any": [["Sam Wilson"], ["Samuel Iyer"]],
+        "min_edges_created": 1
+      },
+      "probes": [
+        {
+          "id": "work_sam_disambiguation",
+          "query": "Which Sam helps me test interaction prototypes at work?",
+          "contains_all": ["Sam Wilson"],
+          "excludes": ["Samuel Iyer"],
+          "expect_nonempty": true
+        },
+        {
+          "id": "university_sam_disambiguation",
+          "query": "Which Sam is the marine biologist?",
+          "contains_all": ["Samuel Iyer"],
+          "excludes": ["Sam Wilson"],
+          "expect_nonempty": true
+        }
+      ]
+    },
+    {
+      "id": "11_promotion_decision",
+      "description": "Resolved decision should supersede the considering state.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "I accepted the design manager promotion today. I start the role on October 1, so I am no longer just considering it."
+        },
+        {
+          "role": "assistant",
+          "text": "Congratulations. That turns the unresolved choice into a concrete transition."
+        },
+        {
+          "role": "user",
+          "text": "Yes, the decision is final. I am excited and nervous, but I am taking the manager role."
+        }
+      ],
+      "expect_graph": {
+        "min_edges_created": 1,
+        "min_edges_superseded": 1
+      },
+      "probes": [
+        {
+          "id": "promotion_now_decided",
+          "query": "Did I decide what to do about the promotion?",
+          "contains_any": ["accepted", "design manager", "October 1"],
+          "excludes": ["not decided"],
+          "expect_nonempty": true
+        }
+      ]
+    },
+    {
+      "id": "12_manager_replacement",
+      "description": "Current manager changes to a different target under a one-to-one relation.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Derek Chen is no longer my manager because he moved to another division. Priya Shah took over as my manager this week and now handles my promotion transition."
+        },
+        {
+          "role": "assistant",
+          "text": "That is a meaningful reporting-line change right as your role changes."
+        },
+        {
+          "role": "user",
+          "text": "Exactly. Priya Shah is my current manager; Derek is a former manager now."
+        }
+      ],
+      "expect_graph": {
+        "has_node_any": [["Priya Shah"]],
+        "min_edges_created": 1
+      },
+      "probes": [
+        {
+          "id": "current_manager_only",
+          "query": "Who is my current manager?",
+          "contains_all": ["Priya Shah"],
+          "excludes": ["Derek"],
+          "expect_nonempty": true
+        }
+      ]
+    },
+    {
+      "id": "13_partner_side_project",
+      "description": "Multiple relationships between the same people should coexist.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Arjun and I started a small side project mapping accessible entrances at Pune museums. He handles the documentary photographs and I design the map interface. He is still my partner; the project is an additional relationship, not a replacement."
+        },
+        {
+          "role": "assistant",
+          "text": "That combines both of your skills without changing the personal relationship."
+        }
+      ],
+      "expect_graph": {
+        "min_edges_created": 1
+      },
+      "probes": [
+        {
+          "id": "partner_and_collaborator",
+          "query": "How are Arjun and I connected?",
+          "contains_any": ["partner", "side project", "accessible entrances"],
+          "contains_all": ["Arjun"],
+          "expect_nonempty": true
+        }
+      ]
+    },
+    {
+      "id": "14_partner_alias",
+      "description": "A new surface-form alias should resolve to the existing partner.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "AJ found a museum willing to pilot our accessibility map. AJ is the nickname I use for Arjun Mehta, my partner; they are the same person."
+        },
+        {
+          "role": "assistant",
+          "text": "That is a useful pilot, and I understand that AJ and Arjun Mehta are one person."
+        },
+        {
+          "role": "user",
+          "text": "Yes, exactly."
+        }
+      ],
+      "expect_graph": {
+        "max_nodes_created": 1
+      },
+      "probes": [
+        {
+          "id": "partner_alias_resolution",
+          "query": "Who do I mean when I mention AJ?",
+          "contains_all": ["Arjun"],
+          "expect_nonempty": true
+        }
+      ]
+    },
+    {
+      "id": "15_preference_evolution",
+      "description": "A durable preference changes and the old negative state should not dominate.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "This surprises me, but I no longer hate running. Nisha convinced me to train with her, and I registered for the Bengaluru half marathon in December. I now run three mornings a week."
+        },
+        {
+          "role": "assistant",
+          "text": "That is a real reversal from finding running monotonous."
+        },
+        {
+          "role": "user",
+          "text": "It is. Training with Nisha changed my mind, and the half marathon is a firm commitment."
+        }
+      ],
+      "expect_graph": {
+        "has_node_any": [["Bengaluru Half Marathon", "half marathon"]],
+        "min_edges_created": 1
+      },
+      "probes": [
+        {
+          "id": "current_running_state",
+          "query": "How do I feel about running now?",
+          "contains_any": ["half marathon", "three mornings", "no longer hate"],
+          "excludes": ["always hated"],
+          "expect_nonempty": true
+        }
+      ]
+    },
+    {
+      "id": "16_rejected_assistant_claim",
+      "description": "An assistant-introduced false relative is explicitly rejected.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "I need to buy a birthday gift for a cousin, but I have not decided what."
+        },
+        {
+          "role": "assistant",
+          "text": "Would your sister Leela know what your cousin likes?"
+        },
+        {
+          "role": "user",
+          "text": "No. I do not have a sister named Leela; you invented that. Please do not remember Leela as part of my family."
+        }
+      ],
+      "expect_graph": {
+        "lacks_node_terms": ["Leela"]
+      },
+      "probes": [
+        {
+          "id": "rejected_relative_absent",
+          "query": "Do I have a sister named Leela?",
+          "excludes": ["Leela"],
+          "expect_empty": true
+        }
+      ]
+    },
+    {
+      "id": "17_distant_bridge",
+      "description": "A friend from the pottery cluster joins the work cluster.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Nisha Kapoor just joined Lattice Labs as a research operations lead. She is still my pottery friend, but now we will also work at the same company on accessibility research."
+        },
+        {
+          "role": "assistant",
+          "text": "That creates a new bridge between a long-running personal friendship and your work."
+        },
+        {
+          "role": "user",
+          "text": "Exactly. It will be strange and nice to see Nisha in both parts of my life."
+        }
+      ],
+      "expect_graph": {
+        "min_edges_created": 1
+      },
+      "probes": [
+        {
+          "id": "friend_work_bridge",
+          "query": "Which pottery friend now works at Lattice Labs?",
+          "contains_all": ["Nisha", "Lattice"],
+          "expect_nonempty": true
+        }
+      ]
+    },
+    {
+      "id": "18_residence_change",
+      "description": "Primary residence changes to a different target and old location becomes historical.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "Arjun and I moved from Pune to Bengaluru last week. Bengaluru is now our primary residence; Pune is where we used to live, not where we live now."
+        },
+        {
+          "role": "assistant",
+          "text": "That is a major life update. How is Pixel handling the move?"
+        },
+        {
+          "role": "user",
+          "text": "Pixel hid for two days but is settling in. The move is complete and our Pune apartment is closed."
+        }
+      ],
+      "expect_graph": {
+        "has_node_any": [["Bengaluru", "Bangalore"]],
+        "min_edges_created": 1
+      },
+      "probes": [
+        {
+          "id": "current_residence_only",
+          "query": "Where do I live now?",
+          "contains_any": ["Bengaluru", "Bangalore"],
+          "excludes": ["live in Pune", "primary residence: Pune"],
+          "expect_nonempty": true
+        }
+      ]
+    },
+    {
+      "id": "19_reinforcement_callback",
+      "description": "A later conversation revisits and reinforces the original accessibility thread.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "The redesigned Lattice analytics dashboard shipped today with full keyboard navigation and screen-reader support. The accessibility requirements survived every schedule cut."
+        },
+        {
+          "role": "assistant",
+          "text": "That closes a long-running thread and validates the boundary you kept defending."
+        },
+        {
+          "role": "user",
+          "text": "Yes. I am proud that we treated accessibility as part of the product rather than polish."
+        }
+      ],
+      "expect_graph": {
+        "min_edges_created": 0
+      },
+      "probes": [
+        {
+          "id": "work_thread_recall",
+          "query": "What did I insist on for the analytics dashboard?",
+          "contains_any": ["keyboard navigation", "screen-reader", "accessibility"],
+          "contains_all": ["dashboard"],
+          "expect_nonempty": true
+        }
+      ]
+    },
+    {
+      "id": "20_trip_completion",
+      "description": "A temporary plan becomes a completed event without deleting provenance.",
+      "turns": [
+        {
+          "role": "user",
+          "text": "We are back from Kochi. Arjun completed the conservation architect interview, and the four-day trip is over. We are not planning another Kochi visit right now."
+        },
+        {
+          "role": "assistant",
+          "text": "So the confirmed future trip is now a completed visit."
+        }
+      ],
+      "expect_graph": {
+        "min_edges_created": 1
+      },
+      "probes": [
+        {
+          "id": "trip_is_historical",
+          "query": "Is the Kochi trip still upcoming?",
+          "contains_any": ["back from Kochi", "trip is over", "completed"],
+          "excludes": ["next Friday"],
+          "expect_nonempty": true
+        },
+        {
+          "id": "final_irrelevant_negative",
+          "query": "What is my favourite chess opening?",
+          "expect_empty": true
+        }
+      ]
+    }
+  ]
+}
