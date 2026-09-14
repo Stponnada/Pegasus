@@ -50,6 +50,43 @@ def test_decay_route(tmp_path):
     assert "edges_decayed" in out
 
 
+def test_agentic_start_and_tool_call_routes(tmp_path):
+    eng = _engine(tmp_path)
+    start = dispatch(eng, "/agentic/start", {"conversation": [{"role": "user", "text": "I work at Walmart."}]})
+    assert isinstance(start["session_id"], str) and start["session_id"]
+    assert "prompt_text" in start
+
+    call = dispatch(eng, "/agentic/tool_call", {
+        "session_id": start["session_id"],
+        "tool_name": "add_entity",
+        "arguments": {"text": "Bill", "type": "PERSON", "confidence": 0.9, "properties": {}, "aliases": [], "candidate_merge_key": None},
+    })
+    assert call["finished"] is False
+    assert "PERSON::bill" in eng.store.nodes
+
+    finish = dispatch(eng, "/agentic/tool_call", {
+        "session_id": start["session_id"],
+        "tool_name": "finish_extraction",
+        "arguments": {"summary": "s", "importance": 0.3, "tags": []},
+    })
+    assert finish["finished"] is True
+    assert finish["stats"]["nodes_created"] == 1
+
+
+def test_agentic_tool_call_requires_session_id(tmp_path):
+    eng = _engine(tmp_path)
+    with pytest.raises(ServiceError) as exc:
+        dispatch(eng, "/agentic/tool_call", {"tool_name": "add_entity", "arguments": {}})
+    assert exc.value.status == 400
+
+
+def test_agentic_start_requires_conversation(tmp_path):
+    eng = _engine(tmp_path)
+    with pytest.raises(ServiceError) as exc:
+        dispatch(eng, "/agentic/start", {})
+    assert exc.value.status == 400
+
+
 def test_bad_input_raises_400(tmp_path):
     eng = _engine(tmp_path)
     with pytest.raises(ServiceError) as exc:

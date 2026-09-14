@@ -105,6 +105,32 @@ provider/model instead of inheriting whatever your default coding model is
 (useful if you want a cheaper/faster model doing extraction than the one
 you're chatting with).
 
+### Sequential extraction (experimental, opt-in)
+
+```jsonc
+{ "plugin": [["pegasus-opencode", { "agenticExtraction": true }]] }
+```
+
+By default, extraction asks the model for the whole graph in one structured
+response. A documented failure mode of that approach on longer conversations:
+a reasoning model tries to hold the entire graph in its reasoning trace,
+re-stating it on every internal revision, and either times out (15+ minutes
+observed) or produces a worse graph. `agenticExtraction: true` switches to
+committing each node/edge to the graph the moment the model decides on it,
+via real opencode tool calls (a dedicated internal subagent, invisible in
+your normal coding sessions) — the same fix already used by this project's
+self-hosted cluster path, now wired into the packaged plugin too.
+
+This is opt-in, not yet the default, because two things need to hold up
+under real use before it can be: whether opencode's own tool-call
+permission restriction on a custom subagent is airtight (there's a
+defense-in-depth fallback either way — the three extraction tools refuse to
+act outside ontomem's own internal session, regardless), and whether a long
+extraction genuinely survives past `/exit` rather than being cut off when
+the opencode process backing that session exits. If you turn this on and
+notice the graph missing content from long conversations, that's the signal
+something didn't survive — please report it.
+
 ## Troubleshooting
 
 - `~/.local/share/ontomem/bootstrap.log` — every step of the first-run

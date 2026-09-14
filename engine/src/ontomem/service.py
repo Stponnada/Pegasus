@@ -9,6 +9,17 @@ Endpoints (all POST, JSON body):
   /read            {"message": str}                -> {memory_block, context_block, text, trace}
   /write           {"conversation": [turn, ...]}   -> write stats
   /retrieve_memory {"node_name": str, "depth": int}-> neighbourhood
+  /agentic/start    {"conversation": [...]}         -> {session_id, prompt_text}
+  /agentic/tool_call {"session_id", "tool_name", "arguments"} -> {result_text, finished, stats?}
+    -- split-request agentic extraction (spec's sequential-commit fix, see
+    engine.py's Engine.start_agentic_write/apply_agentic_tool_call): the
+    caller (the opencode plugin, driving opencode's own native tool-calling
+    loop) calls /agentic/start once, then /agentic/tool_call once per
+    add_entity/add_relationship/finish_extraction call the model makes.
+    Each call commits immediately; `finished` flips true (with `stats`)
+    once finish_extraction lands or the safety cap is hit. This is an
+    alternative to /write for callers whose backend supports a native
+    per-call tool loop; /write's single-shot batch path is unaffected.
   /decay           {}                              -> {edges_decayed, edges_dormant}
   /health          {}                              -> {ok: true, nodes, edges}
 
@@ -69,6 +80,22 @@ def dispatch(engine: Engine, path: str, payload: dict) -> dict:
         if not isinstance(name, str):
             raise ServiceError(400, "'node_name' (str) is required")
         return engine.retrieve_memory(name, int(payload.get("depth", 1)))
+    if path == "/agentic/start":
+        conversation = payload.get("conversation")
+        if not isinstance(conversation, list):
+            raise ServiceError(400, "'conversation' (list of turns) is required")
+        return engine.start_agentic_write(conversation)
+    if path == "/agentic/tool_call":
+        session_id = payload.get("session_id")
+        tool_name = payload.get("tool_name")
+        arguments = payload.get("arguments")
+        if not isinstance(session_id, str):
+            raise ServiceError(400, "'session_id' (str) is required")
+        if not isinstance(tool_name, str):
+            raise ServiceError(400, "'tool_name' (str) is required")
+        if not isinstance(arguments, dict):
+            raise ServiceError(400, "'arguments' (dict) is required")
+        return engine.apply_agentic_tool_call(session_id, tool_name, arguments)
     if path == "/decay":
         return engine.decay()
     if path == "/health":

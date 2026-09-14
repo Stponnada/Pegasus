@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import json
 import threading
+import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -43,6 +45,14 @@ MAX_AGENTIC_TOOL_CALLS = 80
 # spec's "daily background job" cadence (v0.2 §6), so a caller that fires
 # decay on every process start (no cron) still only does real work ~once/day.
 MIN_DECAY_INTERVAL = timedelta(hours=24)
+
+# How long an in-progress split-request agentic session (see
+# start_agentic_write/apply_agentic_tool_call) can sit with no tool_call
+# before it's treated as abandoned (caller crashed, plugin restarted, host
+# agent loop gave up) and swept -- see Engine._sweep_stale_agentic_sessions.
+# Generous relative to the notebook-documented ~2-3 minute normal case for a
+# 10-20 turn conversation, to avoid sweeping a session that's just slow.
+AGENTIC_SESSION_MAX_AGE = timedelta(minutes=30)
 
 
 def _now() -> datetime:
@@ -87,6 +97,31 @@ def _agentic_optional_int(value) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+@dataclass
+class _AgenticSession:
+    """In-progress state for one split-request agentic extraction (see
+    Engine.start_agentic_write/apply_agentic_tool_call) -- the same mutable
+    accumulators _write_agentic keeps as local loop variables, but kept
+    alive across separate HTTP requests instead of one Python call, since
+    each tool call now arrives as its own request from an external caller
+    (e.g. opencode's own agent runtime) rather than a loop iteration this
+    class controls itself."""
+
+    episode: Episode
+    totals: dict = field(default_factory=lambda: dict(
+        nodes_created=0, nodes_merged=0, edges_created=0,
+        edges_reinforced=0, edges_dropped=0, edges_superseded=0,
+        reinforced_from_read=0,
+    ))
+    warnings: list = field(default_factory=list)
+    flagged: list = field(default_factory=list)
+    touched_entity_keys: list = field(default_factory=list)
+    tool_call_log: list = field(default_factory=list)
+    reinforcement_keys: list = field(default_factory=list)
+    call_count: int = 0
+    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class Engine:
@@ -135,6 +170,10 @@ class Engine:
         # apply_write()/_persist() around the same time. This lock forces
         # writes to run one at a time; reads are unaffected.
         self._write_lock = threading.Lock()
+        # In-progress split-request agentic extractions (see
+        # start_agentic_write/apply_agentic_tool_call), keyed by a generated
+        # session id. Only ever touched under _write_lock.
+        self._agentic_sessions: dict[str, _AgenticSession] = {}
         self._extract_fn = extract_fn or self._default_extract
         self._disambiguate_fn = disambiguate_fn or self._default_disambiguate
         self._supersede_fn = supersede_fn or self._default_supersede
@@ -577,6 +616,145 @@ class Engine:
         if result.edges_reinforced:
             return f"reinforced existing relationship {source_name} -[{relation}]-> {target_name} (already existed)"
         return f"added {source_name} -[{relation}]-> {target_name}"
+
+    # --- AGENTIC WRITE, SPLIT ACROSS REQUESTS (spec's "sequential commit" fix) --
+
+    def start_agentic_write(self, conversation: list[dict]) -> dict:
+        """Sets up one agentic extraction pass WITHOUT running any loop --
+        unlike _write_agentic (which owns a chat_fn polling loop end to end
+        in one Python call), this lets an EXTERNAL caller drive the loop
+        (e.g. the opencode plugin, via opencode's own native agent
+        tool-calling loop) by repeatedly invoking apply_agentic_tool_call
+        for each tool call the model makes. The deterministic graph-mutation
+        logic (_agentic_add_entity/_agentic_add_relationship) is identical
+        either way; only who's driving the "call tool, get result, continue"
+        loop differs. Returns the filled prompt text for the caller to hand
+        to its own model-calling mechanism -- this engine still owns all
+        prompt construction, the caller stays a dumb transport."""
+        from .extractor_prompt_agentic import EXTRACTOR_AGENTIC_PROMPT
+
+        with self._write_lock:
+            self._sweep_stale_agentic_sessions_locked()
+            extract_conversation = (
+                [t for t in conversation if t.get("role") == "user"]
+                if self.user_only_extraction
+                else conversation
+            )
+            context = assemble_context(conversation, self.store, self.index, self.embedder, self.config)
+            convo_jsonl = to_jsonl(extract_conversation)
+            prompt = build_prompt(convo_jsonl, context, utcnow_iso(), template=EXTRACTOR_AGENTIC_PROMPT)
+
+            episode = Episode.create("(pending -- finish_extraction not reached)", 0.3)
+            self.store.add_episode(episode)
+
+            session_id = uuid.uuid4().hex
+            self._agentic_sessions[session_id] = _AgenticSession(
+                episode=episode,
+                reinforcement_keys=[e["edge"] for e in read_events(self._reinforce_path)],
+            )
+        return {"session_id": session_id, "prompt_text": prompt}
+
+    def apply_agentic_tool_call(self, session_id: str, tool_name: str, arguments: dict) -> dict:
+        """Applies one add_entity/add_relationship/finish_extraction call to
+        the session started by start_agentic_write. Returns
+        {result_text, finished, stats?} -- stats is only present once
+        finished=True, matching _write_agentic's final return shape (plus
+        agentic_tool_calls)."""
+        with self._write_lock:
+            self._sweep_stale_agentic_sessions_locked()
+            session = self._agentic_sessions.get(session_id)
+            if session is None:
+                return {
+                    "result_text": "error: unknown or already-finished agentic session -- stop calling tools",
+                    "finished": True,
+                }
+
+            session.call_count += 1
+            finished = False
+            if tool_name == "add_entity":
+                result_text = self._agentic_add_entity(
+                    arguments, session.episode, session.totals, session.warnings, session.touched_entity_keys,
+                )
+            elif tool_name == "add_relationship":
+                result_text = self._agentic_add_relationship(
+                    arguments, session.episode, session.totals, session.warnings, session.flagged,
+                )
+            elif tool_name == "finish_extraction":
+                session.episode.summary = str(arguments.get("summary") or "").strip() or session.episode.summary
+                session.episode.importance = _clamp01(arguments.get("importance"), session.episode.importance)
+                session.episode.tags = [str(t).strip() for t in (arguments.get("tags") or []) if str(t).strip()][:5]
+                result_text = "episode finalized; stop calling tools now"
+                finished = True
+            else:
+                result_text = f"error: unknown tool {tool_name!r}"
+                session.warnings.append(f"agentic loop received unknown tool call {tool_name!r}")
+
+            session.tool_call_log.append({"tool": tool_name, "args": arguments, "result": result_text})
+
+            if not finished and session.call_count >= MAX_AGENTIC_TOOL_CALLS:
+                session.warnings.append(
+                    f"agentic extraction hit the {MAX_AGENTIC_TOOL_CALLS}-call safety cap without finish_extraction"
+                )
+                finished = True
+
+            if not finished:
+                return {"result_text": result_text, "finished": False}
+
+            stats = self._finalize_agentic_session_locked(session_id)
+            return {"result_text": result_text, "finished": True, "stats": stats}
+
+    def _finalize_agentic_session_locked(self, session_id: str) -> dict:
+        """Mirrors the tail of _write_agentic (orphan check, deferred
+        reinforcement, persist) for one completed session. Caller must
+        already hold _write_lock."""
+        session = self._agentic_sessions.pop(session_id)
+        episode = session.episode
+        if episode.summary.startswith("(pending"):
+            episode.summary = "(extraction ended without a summary -- see warnings)"
+
+        seen_orphan_check: set[str] = set()
+        for key in session.touched_entity_keys:
+            if key in seen_orphan_check:
+                continue
+            seen_orphan_check.add(key)
+            node = self.store.get_node(key)
+            if node is not None and not node.outgoing and not node.incoming:
+                session.warnings.append(f"orphan entity {key}: extracted but participates in no relationship (unreachable)")
+
+        for key in session.reinforcement_keys:
+            if key in self.store.edges:
+                self.store.reinforce_edge(key, boost=self.config.reinforce_boost)
+                session.totals["reinforced_from_read"] += 1
+
+        self._drain_reinforcement_log()
+        self.index.sync(self._index_inputs(), self.embedder)
+        self.index.save(self._index_path)
+        self._persist()
+
+        return {
+            "episode_id": episode.id,
+            **session.totals,
+            "flagged": session.flagged,
+            "warnings": session.warnings,
+            "agentic_tool_calls": session.tool_call_log,
+        }
+
+    def _sweep_stale_agentic_sessions_locked(self) -> None:
+        """Finalizes (with whatever was already committed -- nothing is
+        lost, that's the whole point of per-call commits) any agentic
+        session that's been open longer than AGENTIC_SESSION_MAX_AGE with no
+        finish_extraction -- a crashed caller or restarted plugin would
+        otherwise leak it forever. Caller must already hold _write_lock."""
+        now = _now()
+        stale_ids = [
+            sid for sid, session in self._agentic_sessions.items()
+            if now - session.started_at > AGENTIC_SESSION_MAX_AGE
+        ]
+        for sid in stale_ids:
+            self._agentic_sessions[sid].warnings.append(
+                f"agentic session swept as abandoned after {AGENTIC_SESSION_MAX_AGE} with no finish_extraction"
+            )
+            self._finalize_agentic_session_locked(sid)
 
     # --- RETRIEVE_MEMORY (deep retrieval tool) ---------------------------------
 

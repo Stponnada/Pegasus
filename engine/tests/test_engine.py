@@ -4,7 +4,7 @@ driven offline via an injected extractor stub and the HashingEmbedder."""
 from datetime import timedelta
 
 from ontomem.embeddings import HashingEmbedder
-from ontomem.engine import Engine, _now
+from ontomem.engine import AGENTIC_SESSION_MAX_AGE, MAX_AGENTIC_TOOL_CALLS, Engine, _now
 from ontomem.extractor import ExtractionResult
 from ontomem.merge_llm import DisambiguationDecision
 from ontomem.model import Episode, Node, Edge
@@ -183,6 +183,130 @@ def test_agentic_hits_safety_cap_without_finish_extraction(tmp_path):
     result = eng.write([{"role": "user", "turn": 1, "text": "..."}])
 
     assert any("safety cap" in w for w in result["warnings"])
+
+
+# --- split-request agentic extraction (start_agentic_write / apply_agentic_tool_call) ---
+# Same deterministic graph-mutation logic as the chat_fn-driven tests above,
+# but driven the way an external caller with its own native tool-calling
+# loop would (e.g. the opencode plugin) -- one HTTP-shaped call per tool
+# call, no chat_fn/messages list involved at all.
+
+
+def _agentic_engine(tmp_path):
+    return Engine(
+        tmp_path, embedder=HashingEmbedder(),
+        disambiguate_fn=lambda e, r, s, c: DisambiguationDecision(e.key, NEW, None, 0.0),
+    )
+
+
+def test_split_agentic_write_commits_incrementally_and_finishes(tmp_path):
+    eng = _agentic_engine(tmp_path)
+
+    start = eng.start_agentic_write([{"role": "user", "turn": 1, "text": "I work at Walmart."}])
+    assert isinstance(start["session_id"], str) and start["session_id"]
+    assert "prompt_text" in start
+
+    r1 = eng.apply_agentic_tool_call(start["session_id"], "add_entity", {
+        "text": "Bill", "type": "PERSON", "confidence": 0.9, "properties": {}, "aliases": [], "candidate_merge_key": None,
+    })
+    assert r1["finished"] is False
+    assert "PERSON::bill" in eng.store.nodes  # committed immediately, not batched
+
+    r2 = eng.apply_agentic_tool_call(start["session_id"], "add_entity", {
+        "text": "Walmart", "type": "ORG", "confidence": 0.9, "properties": {}, "aliases": [], "candidate_merge_key": None,
+    })
+    assert r2["finished"] is False
+    assert "ORG::walmart" in eng.store.nodes
+
+    r3 = eng.apply_agentic_tool_call(start["session_id"], "add_relationship", {
+        "source": "Bill", "relation": "WORKS_AT", "target": "Walmart",
+        "confidence": 0.9, "stability": "mutable", "ttl_days": None,
+        "cardinality": "one_to_one", "evidence": "works at Walmart",
+        "snippet": "Bill said he works at Walmart.", "properties": {},
+    })
+    assert r3["finished"] is False
+    assert eng.store.get_edge("PERSON::bill::WORKS_AT::ORG::walmart") is not None
+
+    r4 = eng.apply_agentic_tool_call(start["session_id"], "finish_extraction", {
+        "summary": "Bill mentioned working at Walmart.", "importance": 0.5, "tags": ["career"],
+    })
+    assert r4["finished"] is True
+    stats = r4["stats"]
+    assert stats["nodes_created"] == 2
+    assert stats["edges_created"] == 1
+    assert stats["warnings"] == []
+    episode = eng.store.get_episode(stats["episode_id"])
+    assert episode.summary == "Bill mentioned working at Walmart."
+    assert episode.tags == ["career"]
+
+    # session is gone once finished -- a stray extra call must not resurrect it
+    r5 = eng.apply_agentic_tool_call(start["session_id"], "add_entity", {
+        "text": "Extra", "type": "THING", "confidence": 0.5, "properties": {}, "aliases": [], "candidate_merge_key": None,
+    })
+    assert r5["finished"] is True
+    assert "already-finished" in r5["result_text"] or "unknown" in r5["result_text"]
+
+
+def test_split_agentic_synthesizes_missing_endpoint(tmp_path):
+    eng = _agentic_engine(tmp_path)
+    session_id = eng.start_agentic_write([{"role": "user", "turn": 1, "text": "I work at Walmart."}])["session_id"]
+
+    eng.apply_agentic_tool_call(session_id, "add_entity", {
+        "text": "Bill", "type": "PERSON", "confidence": 0.9, "properties": {}, "aliases": [], "candidate_merge_key": None,
+    })
+    r = eng.apply_agentic_tool_call(session_id, "add_relationship", {
+        "source": "Bill", "relation": "WORKS_AT", "target": "Walmart",
+        "confidence": 0.9, "stability": "mutable", "ttl_days": None,
+        "cardinality": "one_to_one", "evidence": "", "snippet": "x" * 20, "properties": {},
+    })
+    final = eng.apply_agentic_tool_call(session_id, "finish_extraction", {"summary": "s", "importance": 0.3, "tags": []})
+
+    assert final["stats"]["edges_created"] == 1
+    assert any("synthesised provisional node" in w for w in final["stats"]["warnings"])
+    assert "PERSON::bill" in eng.store.nodes and "OTHER::walmart" in eng.store.nodes
+
+
+def test_split_agentic_hits_safety_cap_without_finish_extraction(tmp_path):
+    eng = _agentic_engine(tmp_path)
+    session_id = eng.start_agentic_write([{"role": "user", "turn": 1, "text": "..."}])["session_id"]
+
+    result = None
+    for i in range(MAX_AGENTIC_TOOL_CALLS + 1):
+        result = eng.apply_agentic_tool_call(session_id, "add_entity", {
+            "text": f"Node{i}", "type": "THING", "confidence": 0.5,
+            "properties": {}, "aliases": [], "candidate_merge_key": None,
+        })
+        if result["finished"]:
+            break
+
+    assert result["finished"] is True
+    assert any("safety cap" in w for w in result["stats"]["warnings"])
+
+
+def test_split_agentic_unknown_session_returns_finished_error(tmp_path):
+    eng = _agentic_engine(tmp_path)
+    result = eng.apply_agentic_tool_call("not-a-real-session", "add_entity", {
+        "text": "X", "type": "THING", "confidence": 0.5, "properties": {}, "aliases": [], "candidate_merge_key": None,
+    })
+    assert result["finished"] is True
+    assert "unknown or already-finished" in result["result_text"]
+
+
+def test_split_agentic_sweeps_stale_session(tmp_path):
+    eng = _agentic_engine(tmp_path)
+    stale_id = eng.start_agentic_write([{"role": "user", "turn": 1, "text": "stale one"}])["session_id"]
+    # Commit one entity to the stale session so we can confirm the sweep
+    # finalizes with work already committed (nothing lost), not discarded.
+    eng.apply_agentic_tool_call(stale_id, "add_entity", {
+        "text": "Ghost", "type": "THING", "confidence": 0.5, "properties": {}, "aliases": [], "candidate_merge_key": None,
+    })
+    eng._agentic_sessions[stale_id].started_at -= AGENTIC_SESSION_MAX_AGE + timedelta(minutes=1)
+
+    fresh_id = eng.start_agentic_write([{"role": "user", "turn": 1, "text": "fresh one"}])["session_id"]
+
+    assert stale_id not in eng._agentic_sessions  # swept as a side effect of the next tool_call/start call
+    assert "THING::ghost" in eng.store.nodes  # already-committed work survived the sweep
+    assert fresh_id in eng._agentic_sessions
 
 
 def test_write_then_read_cycle(tmp_path):
