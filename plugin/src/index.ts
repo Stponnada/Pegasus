@@ -61,7 +61,15 @@ function log(message: string): void {
 
 async function isEngineHealthy(): Promise<boolean> {
   try {
-    const res = await fetch(`${SERVICE_URL}/health`, { signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) })
+    // /health is POST-only (see service.py's dispatch()) -- a plain GET
+    // (the default fetch() method) always 404s there, which meant this
+    // returned false unconditionally, even against a perfectly healthy
+    // engine. Confirmed live: the bootstrap log showed repeated re-spawns
+    // because ensureEngineRunning() never believed any of them succeeded.
+    const res = await fetch(`${SERVICE_URL}/health`, {
+      method: "POST",
+      signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+    })
     return res.ok
   } catch {
     return false
@@ -278,7 +286,15 @@ export const OntomemPlugin: Plugin = async ({ client }, options) => {
     "chat.message": async (input, output) => {
       touchedSessions.add(input.sessionID)
       try {
-        await ensureEngineRunning(callbackUrl)
+        // Do NOT await ensureEngineRunning() here -- opencode awaits this
+        // whole hook before the message is even rendered, and a first-run
+        // bootstrap can take well over a minute (uv sync + spawn + health
+        // polling). That turned every first message after install into an
+        // apparent hang. Bootstrapping is already kicked off, fire-and-
+        // forget, once at plugin load (see above); /read below already has
+        // its own short timeout (READ_TIMEOUT_MS) and degrades to null if
+        // the engine isn't up yet -- that's the correct behavior here, not
+        // blocking the turn on the full bootstrap.
         const message = textOf(output.parts)
         if (!message) return
         const result = await callService<{ text: string }>("/read", { message })
