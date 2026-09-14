@@ -2,8 +2,10 @@
 
 The embedder is an injectable interface so the retriever's graph mechanics can be
 tested without a network. `HashingEmbedder` is a deterministic, dependency-free
-embedder (lexical, not semantic) used for hermetic tests; `GeminiEmbedder` is the
-live one. Embeddings are stored in a sidecar keyed by node id, alongside the
+embedder (lexical, not semantic) used for hermetic tests; `GeminiEmbedder` and
+`OpenAICompatibleEmbedder` are live, remote ones; `LocalEmbedder` is live but
+fully offline (runs on-device, no API key, no data leaves the machine).
+Embeddings are stored in a sidecar keyed by node id, alongside the
 embedding-model id (open problem 9.4: detect drift, re-embed on model change).
 """
 
@@ -104,6 +106,43 @@ class GeminiEmbedder:
         vecs = np.array(rows, dtype=np.float32)
         if vecs.size == 0:
             raise RuntimeError("embedding model returned no vectors")
+        return _l2_normalise(vecs)
+
+
+LOCAL_EMBED_MODEL = "BAAI/bge-small-en-v1.5"
+
+
+class LocalEmbedder:
+    """Fully local, offline semantic embedder using fastembed (ONNX runtime,
+    no torch, no network call per embed -- only a one-time model-weight
+    download on first use, cached on disk). This is the default embedder for
+    the packaged opencode plugin (see service.py's make_engine_from_env):
+    unlike GeminiEmbedder/OpenAICompatibleEmbedder it needs no API key and,
+    more importantly, node/edge text never leaves the machine to be embedded
+    -- there is no third-party embedding endpoint in the loop at all.
+
+    The model is lazy-loaded on first `embed()` call (not in __init__), same
+    convention as GeminiEmbedder's lazy `from google import genai`: importing
+    this module, or constructing this class, must not require fastembed to
+    be installed -- only actually embedding does."""
+
+    def __init__(self, *, model: str = LOCAL_EMBED_MODEL, cache_dir: str | Path | None = None) -> None:
+        self.model_id = model
+        self._cache_dir = str(cache_dir) if cache_dir else None
+        self._model = None
+
+    def _loaded_model(self):
+        if self._model is None:
+            from fastembed import TextEmbedding
+
+            self._model = TextEmbedding(model_name=self.model_id, cache_dir=self._cache_dir)
+        return self._model
+
+    def embed(self, texts: list[str]) -> np.ndarray:
+        model = self._loaded_model()
+        vecs = np.array(list(model.embed(list(texts))), dtype=np.float32)
+        if vecs.size == 0:
+            raise RuntimeError("local embedding model returned no vectors")
         return _l2_normalise(vecs)
 
 

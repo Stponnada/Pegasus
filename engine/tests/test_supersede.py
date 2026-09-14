@@ -35,10 +35,21 @@ def test_parse_strips_fences():
 
 def test_build_prompt_contains_both_relations():
     prompt = build_supersession_prompt(
-        "Marcus", "Safety Team", "CONSIDERING_TRANSFER_TO", "TRANSFERS_TO",
+        "Marcus", "Safety Team", "Safety Team", "CONSIDERING_TRANSFER_TO", "TRANSFERS_TO",
         old_snippet="Marcus was weighing a transfer.", conversation_context="going for it",
     )
     assert "CONSIDERING_TRANSFER_TO" in prompt
     assert "TRANSFERS_TO" in prompt
     assert "Marcus" in prompt and "Safety Team" in prompt
     assert "going for it" in prompt
+
+
+def test_build_prompt_shows_different_targets_for_same_relation_conflict():
+    # same relation, different target — e.g. MANAGED_BY priya -> MANAGED_BY desmond
+    prompt = build_supersession_prompt(
+        "Renee", "Priya", "Desmond", "MANAGED_BY", "MANAGED_BY",
+        old_snippet="Priya was her manager.", conversation_context="new job",
+    )
+    assert "Priya" in prompt and "Desmond" in prompt
+    assert "old target: Priya" in prompt
+    assert "new target: Desmond" in prompt

@@ -1,8 +1,11 @@
 """Unit tests for the embedding layer (deterministic HashingEmbedder)."""
 
+import sys
+import types
+
 import numpy as np
 
-from ontomem.embeddings import EmbeddingIndex, HashingEmbedder, _batched, _l2_normalise
+from ontomem.embeddings import EmbeddingIndex, HashingEmbedder, LocalEmbedder, _batched, _l2_normalise
 from ontomem.model import Node
 from ontomem.store import Store
 
@@ -185,3 +188,35 @@ def test_index_sidecar_roundtrip(tmp_path):
     assert set(loaded.keys) == set(index.keys)
     query = emb.embed(["Sarah"])[0]
     assert loaded.search(query, threshold=0.5)[0][0] == "PERSON::sarah"
+
+
+def test_local_embedder_lazy_loads_fastembed_and_normalises(monkeypatch):
+    """fastembed isn't a hard dependency (it's behind the `local` extra), so
+    this injects a fake module into sys.modules rather than requiring it
+    installed -- same trick test_inference.py uses for urllib.request."""
+    calls = []
+    vectors_by_text = {"a": [1.0, 0.0], "b": [0.0, 2.0]}
+
+    class FakeTextEmbedding:
+        def __init__(self, model_name, cache_dir=None):
+            calls.append((model_name, cache_dir))
+
+        def embed(self, texts):
+            return (np.array(vectors_by_text[t]) for t in texts)
+
+    fake_module = types.ModuleType("fastembed")
+    fake_module.TextEmbedding = FakeTextEmbedding
+    monkeypatch.setitem(sys.modules, "fastembed", fake_module)
+
+    embedder = LocalEmbedder(cache_dir="/tmp/ontomem-fastembed-cache")
+    vectors = embedder.embed(["a", "b"])
+
+    assert calls == [("BAAI/bge-small-en-v1.5", "/tmp/ontomem-fastembed-cache")]
+    np.testing.assert_allclose(vectors, [[1.0, 0.0], [0.0, 1.0]])
+
+    embedder.embed(["a"])
+    assert len(calls) == 1, "model should be loaded once and reused, not per embed() call"
+
+
+def test_local_embedder_default_model_id():
+    assert LocalEmbedder().model_id == "BAAI/bge-small-en-v1.5"

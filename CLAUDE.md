@@ -11,6 +11,9 @@ This repo has **two parts that serve one goal**: design and then build an *ontol
 | `Documentation/` | **The design** — authoritative spec + essay for the ontology memory system. *What* to build. No code. |
 | `engine/` | **The implementation** — the standalone Python memory engine (spec v0.2.1), built test-first. *The* memory system. |
 | `opencode/` | **The host codebase** — a fork of [`sst/opencode`](https://github.com/sst/opencode), a production AI coding agent (Bun + Effect + SolidJS monorepo). *Where* the engine plugs in. |
+| `cluster/` | **Self-hosted inference ops** — Slurm scripts + SSH bridges to run the generation/embedding backends on a university GPU cluster instead of the Gemini API. *Where* it can run without a paid API key. |
+
+`claude-code/` at the repo root is an **unrelated vendored checkout** (a third-party "leaked Claude Code source" project) — it is not part of the ontomem system, has no relationship to this repo's goal, and should be ignored unless a task explicitly names it.
 
 The memory engine is **implemented and tested** under `engine/` (Phase 1 complete: all six build-order layers, 200+ tests — `engine/README.md`'s "171 tests" figure is stale, recount with the commands below rather than trusting either number). It is a standalone Python service; `opencode` integrates with it via a thin TS plugin adapter that already exists — the runtime copy lives at `opencode/.opencode/plugins/ontomem-plugin.ts` (see "How the memory system integrates" below for why it's there and not under `engine/`, and this is implemented, not just planned). The engine itself contains no opencode code — read `engine/README.md` for its layout and the design spec before changing it.
 
@@ -28,12 +31,56 @@ GEMINI_API_KEY=... uv run python -m ontomem.service   # run the HTTP service, de
 
 PYTHONPATH=src uv run python demo/server.py           # visual Read-pipeline demo at http://127.0.0.1:8800 (no key needed)
 PYTHONPATH=src uv run python scripts/dogfood.py       # multi-turn live-Gemini harness run -> dogfood_report.json
+PYTHONPATH=src uv run python scripts/run_local_dogfood.py     # dogfood against a local/self-hosted backend, not Gemini
+PYTHONPATH=src uv run python scripts/render_corpus_markdown.py # render a dogfood corpus/report as readable markdown
+source ../cluster/cluster_env.sh && ./scripts/run_e2e_campaign.sh  # resumable synthetic-life e2e campaign against a live OpenAI-compatible endpoint (see e2e/)
 ```
 
 - **Test discipline (non-negotiable):** every unit ships with its test; the full hermetic suite stays green at each step; deterministic logic is asserted against hand-checked values; LLM-dependent code is covered by opt-in `-m integration` tests (auto-skip without a key). The default `pytest` run is hermetic (network tests deselected via `addopts`).
-- **Module map:** `model` → `store`/`decay`/`journal` → `extractor`(+`extractor_prompt`) → `merge`(2a)/`merge_llm`(2b) → `embeddings`/`retriever` → `consolidate` (Stage 0 + write orchestration, calling `supersede` for the relationship supersede/coexist/contradict judgment when a new edge shares (source, target) with an existing edge under a different relation — spec §9.2c) → `engine` (facade) → `service` (HTTP). `genai_keys` is an operational (non-spec) helper that round-robins multiple `GEMINI_API_KEYS` to work around free-tier per-key rate limits during dogfooding. All v0.2.1 corrections (edge-only strength, Stage 0, deferred reinforcement, JSON-snapshot storage) are implemented.
-- **Secrets:** `engine/.env` (git-ignored) holds `GEMINI_API_KEY`; never hardcode it. Model: `gemini-3.1-flash-lite`; embeddings: `gemini-embedding-001`.
+- **Module map:** `model` → `store`/`decay`/`journal` → `extractor`(+`extractor_prompt`/`extractor_prompt_reasoning`/`extractor_prompt_agentic`/`extraction_schema`) → `merge`(2a)/`merge_llm`(2b) → `embeddings`/`retriever` → `consolidate` (Stage 0 + write orchestration, calling `supersede` for the relationship supersede/coexist/contradict judgment — spec §9.2c) → `engine` (facade) → `service` (HTTP). `inference` is the OpenAI-compatible chat/tool-calling client used when running against a self-hosted backend instead of Gemini. `genai_keys` is an operational (non-spec) helper that round-robins multiple `GEMINI_API_KEYS` to work around free-tier per-key rate limits during dogfooding. All v0.2.1 corrections (edge-only strength, Stage 0, deferred reinforcement, JSON-snapshot storage) are implemented.
+- **Supersession now covers two conflict shapes** (`consolidate.plan_supersessions` → `supersede.decide_supersession`): (a) same (source, target), different relation — spec's original case — and (b) same (source, relation) with a *different* target where the relation's `cardinality` is `one_to_one` (e.g. `MANAGED_BY Priya` → `MANAGED_BY Desmond`; only one target can be true at once, so the new edge is a candidate replacement, not a coexisting fact). Both route through the same LLM supersede/coexist/contradict judgment.
+- **Extraction backends and modes** — Gemini (`extractor_prompt.EXTRACTOR_SYSTEM_PROMPT`, freeform JSON) remains the default and untouched path. Against a self-hosted OpenAI-compatible backend (see "Multi-backend inference" below), two opt-in modes exist, mutually exclusive, both requiring `OPENAI_BASE_URL`/`ONTOMEM_LLM_BASE_URL`:
+  - `ONTOMEM_EXTRACTION_TOOL_CALLING=1` — one big tool call constrained by `extraction_schema.EXTRACTION_TOOL_SCHEMA`, prompted by `extractor_prompt_reasoning` (principles-based, not worked-examples, for a reasoning-capable model).
+  - `ONTOMEM_AGENTIC_EXTRACTION=1` — `Engine._write_agentic`: the model calls small tools (`add_entity`/`add_relationship`/`finish_extraction`) one at a time via `chat_fn`, each committed to the graph immediately instead of landing in one atomic commit at the end; capped at `MAX_AGENTIC_TOOL_CALLS` (80) to bound a backend that never calls `finish_extraction`. Needs `Engine(chat_fn=...)`, distinct from the single-shot-prompt `generate_fn`.
+  - `ONTOMEM_USER_ONLY_EXTRACTION=1` — experimental flag on `Engine.write()`, independent of the above.
+  - Under `tool_choice="auto"` the live vLLM/Gemma backend does **not** enforce the tool schema's declared types/enums (they're descriptive text, not constrained decoding) — nullable/int fields can come back as literal strings (`"null"`, `"30"`); `engine._agentic_null`/`_agentic_optional_int` coerce these. Any new agentic tool-arg field needs the same coercion.
+- **Secrets:** `engine/.env` (git-ignored) holds `GEMINI_API_KEY`; never hardcode it. Default model: `gemini-3.1-flash-lite`; embeddings: `gemini-embedding-001`.
+- **Multi-backend inference (`inference.py`):** any provider implementing the OpenAI Chat Completions and Embeddings protocols can replace Gemini via env vars alone — `OPENAI_API_KEY`/`OPENAI_BASE_URL`/`OPENAI_MODEL`/`OPENAI_EMBED_MODEL` (separate `OPENAI_EMBED_BASE_URL`/`OPENAI_EMBED_API_KEY` only if embeddings live on a different server). This is how `cluster/` wires a self-hosted Gemma 4 + embedder to the engine (see Part 0.5 below) — no provider-specific code is needed, and the Gemini path is unaffected when these vars are unset.
+- **`Engine` serializes writes:** `service.py`'s `ThreadingHTTPServer` runs each `/write` request on its own thread; a client-side retry after a timeout can otherwise reach `apply_write`/`_persist` concurrently with the original attempt against the same in-memory store (reproduced live). `Engine._write_lock` forces writes to run one at a time; reads are unaffected.
+- **The graph viewer (`static/viewer.html`) is branded "Pegasus"** in-app — a Node Tester dialog (simulate a Read and see what would be recalled) and a Graph Inspector drawer (click a node/edge for its full properties/snippets) live there; opened from opencode via the `/memory` command once the plugin is wired.
 - **The `pyright`/editor "import could not be resolved" warnings are a harness venv-config artifact** — the passing pytest run is the ground truth that imports resolve.
+
+## Part 0.5 — Self-hosted cluster inference (`cluster/`)
+
+Runs the engine's generation + embedding backends on a university Slurm/GPU
+cluster (dense **Gemma 4 31B** via vLLM, thinking enabled, plus a separate
+`all-roberta-large-v1` embedder) instead of paying for the Gemini API, exposed
+to the engine as ordinary OpenAI-compatible endpoints (see "Multi-backend
+inference" above) — no engine code changes needed to switch backends.
+Background and the model-selection story (why `google/gemma-4-31B-it` and not
+the E4B or 26B-A4B-MoE checkpoints) are in `Documentation/GEMMA_SETUP.md` and
+`Documentation/HOW_TO_INFERENCE_A_MODEL_LOCALLY.md`; day-to-day operation is
+`cluster/README.md`.
+
+- **Fast path:** on the cluster, `ontomem all` (installed at
+  `/home/gururaj/bin/ontomem`) submits-or-reuses both Slurm jobs and waits for
+  readiness. On the Mac, `gemma-code` bridges both services over SSH
+  (`stdio_bridge.py`, since normal TCP forwarding isn't available on this
+  cluster), starts/reuses the local memory engine, and launches the
+  plugin-capable local opencode build pointed at `ontomem-llm`/`ontomem-embed`
+  — the launch directory stays the active coding workspace. `/memory` inside
+  opencode opens the Pegasus graph viewer. `qwen-code` is a retained
+  compatibility alias for `gemma-code` (Qwen2.5-32B was the prior backend;
+  the client-facing OpenAI-compatible contract didn't change across the
+  migration).
+- Both the cluster (`ontomem ...`) and Mac (`ontomem-bridge ...`) command sets
+  are idempotent — safe to re-run; `ontomem status`/`logs`/`wait` inspect a
+  running job rather than restarting it.
+- Local endpoints once bridged: chat `http://127.0.0.1:18000/v1`
+  (`ontomem-llm`), embeddings `http://127.0.0.1:18001/v1` (`ontomem-embed`),
+  memory service `http://127.0.0.1:8765`.
+- The dogfood/e2e campaign is **not** launched automatically by the inference
+  scripts — run it explicitly per the `run_e2e_campaign.sh` command in Part 0.
 
 ## Part 1 — The design (`Documentation/`)
 
@@ -42,6 +89,7 @@ Files (note the version vs. filename mapping — it is counterintuitive):
 - `Documentation/ontology_memory_design.md` — earlier draft (v0.1). Superseded by v0.2; thinner, missing the merge sub-stages, asymmetric traversal, deep-retrieval tool, and extractor prompt. Keep only for history.
 - `Documentation/*.pdf` — original PDF exports of the two `.md` files above (same content; read the `.md` versions).
 - `Documentation/Ontology as Long Term memory.ipynb` — the originating essay (markdown only, no code). Explains the *why* and the human-brain analogy. Read for intent; read the v0.2 `.md` for the spec.
+- `Documentation/GEMMA_SETUP.md`, `Documentation/HOW_TO_INFERENCE_A_MODEL_LOCALLY.md`, `Documentation/SESSION_SUMMARY_*.md` — operational records of the self-hosted-cluster migration (see Part 0.5), not design spec. Dated/point-in-time; useful for cluster ops history, not for the memory system's contract.
 
 When sources disagree, `ontology_memory_architecture.md` (v0.2.1) wins.
 

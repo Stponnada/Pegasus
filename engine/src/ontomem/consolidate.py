@@ -109,23 +109,45 @@ class Supersession:
 
 
 def plan_supersessions(extraction, plan, store, supersede_fn, conversation_context: str = "") -> list[Supersession]:
-    """For each new edge, find existing edges between the SAME (remapped) endpoints
-    under a DIFFERENT relation and ask the injected `supersede_fn` how to reconcile
-    them. Only SUPERSEDES / CONTRADICTS produce an action; COEXIST is dropped. Pure
+    """For each new edge, find existing edges that plausibly describe the same
+    real-world fact and ask the injected `supersede_fn` how to reconcile them.
+    Two conflict shapes are checked:
+      (a) same (source, target), different relation — e.g. CONSIDERING_TRANSFER_TO
+          replaced by TRANSFERS_TO for the same org.
+      (b) same (source, relation), different target, where EITHER edge is
+          cardinality=one_to_one — e.g. MANAGED_BY priya replaced by MANAGED_BY
+          desmond. Gated on cardinality so genuinely one-to-many relations
+          (HAS_FRIEND, VISITED, ...) don't get flagged just because they share
+          a relation label with a different target.
+    Only SUPERSEDES / CONTRADICTS produce an action; COEXIST is dropped. Pure
     orchestration — the network/LLM lives behind supersede_fn, like 2b's
     disambiguate_fn — so the deterministic write stage stays LLM-free."""
     out: list[Supersession] = []
     checked: set[tuple[str, str]] = set()
+    # This runs BEFORE _write_nodes, so a brand-new entity introduced in this
+    # same extraction (e.g. a new manager mentioned for the first time) isn't
+    # in store.nodes yet -- it's about to be created by the write that follows.
+    # Without this, a genuinely new target would always fail the membership
+    # check below and every supersession involving it would be silently missed.
+    pending_node_keys = {plan.remap.get(n.key, n.key) for n in extraction.nodes}
     for edge in extraction.edges:
         src = plan.remap.get(edge.source_key, edge.source_key)
         tgt = plan.remap.get(edge.target_key, edge.target_key)
-        if src not in store.nodes or tgt not in store.nodes:
+        if (src not in store.nodes and src not in pending_node_keys) or (
+            tgt not in store.nodes and tgt not in pending_node_keys
+        ):
             continue
         for existing in list(store.edges.values()):
-            if existing.source_key != src or existing.target_key != tgt:
+            if existing.source_key != src:
                 continue
-            if existing.relation == edge.relation:
-                continue  # same relation -> a re-mention (reinforce), not supersession
+            same_endpoints_new_relation = existing.target_key == tgt and existing.relation != edge.relation
+            same_relation_new_target = (
+                existing.relation == edge.relation
+                and existing.target_key != tgt
+                and (existing.cardinality == "one_to_one" or edge.cardinality == "one_to_one")
+            )
+            if not (same_endpoints_new_relation or same_relation_new_target):
+                continue
             if existing.properties.get("superseded_by"):
                 continue  # already demoted; don't re-evaluate
             pair = (existing.key, edge.relation)
@@ -164,18 +186,36 @@ def apply_write(
     supersessions=None,
     config: RetrievalConfig | None = None,
     journal_path=None,
+    add_episode: bool = True,
+    check_orphans: bool = True,
 ) -> WriteResult:
     """Execute the merge plan deterministically. No LLM. The one place graph
-    corruption could originate, so it is the most carefully tested."""
+    corruption could originate, so it is the most carefully tested.
+
+    `add_episode=False` skips store.add_episode(): the agentic (per-item)
+    extraction mode calls this once per entity/relationship against ONE
+    shared episode added up front, so every subsequent call must not try to
+    re-add (store.add_episode raises on a duplicate id) -- see
+    engine.py's _write_agentic.
+
+    `check_orphans=False` skips _flag_orphans: it judges an entity by whether
+    it has any incident edge in the store RIGHT NOW, which is a valid check
+    for one batch extraction call but a false positive for a lone
+    add_entity() call in the agentic loop -- a node added now often gets its
+    first edge from a SEPARATE, later add_relationship() call, not this one.
+    The agentic loop does its own equivalent check once, after the whole
+    session ends, when the full picture is actually known."""
     config = config or RetrievalConfig()
     result = WriteResult(episode_id=extraction.episode.id, flagged=list(plan.flagged), warnings=list(extraction.warnings))
     if store.self_key is None and plan.inferred_self_key:
         store.self_key = plan.inferred_self_key
-    store.add_episode(extraction.episode)
+    if add_episode:
+        store.add_episode(extraction.episode)
     _write_nodes(extraction, plan, store, result)
     _write_edges(extraction, plan, store, result, config)
     _apply_supersessions(supersessions or [], store, result, config)
-    _flag_orphans(extraction, plan, store, result)
+    if check_orphans:
+        _flag_orphans(extraction, plan, store, result)
     _apply_read_reinforcement(reinforcement_edge_keys or [], store, result, config)
     _journal(journal_path, extraction, plan, result)
     return result

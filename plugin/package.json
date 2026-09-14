@@ -1,0 +1,40 @@
+{
+  "name": "pegasus-opencode",
+  "version": "0.1.0",
+  "description": "Ontology-based long-term memory for opencode. Install, connect your existing opencode auth, done -- no API keys, no separate service to run, no cluster.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Sriniketh Ponnada",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Stponnada/Pegasus.git",
+    "directory": "plugin"
+  },
+  "homepage": "https://github.com/Stponnada/Pegasus/tree/main/plugin#readme",
+  "bugs": "https://github.com/Stponnada/Pegasus/issues",
+  "keywords": ["opencode", "opencode-plugin", "memory", "knowledge-graph", "llm"],
+  "main": "src/index.ts",
+  "exports": {
+    "./server": "./src/index.ts",
+    "./tui": "./src/tui.ts"
+  },
+  "files": [
+    "src",
+    "engine",
+    "scripts/sync-engine.sh",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "sync-engine": "bash scripts/sync-engine.sh",
+    "prepack": "bash scripts/sync-engine.sh",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.18.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "bun-types": "^1.1.0"
+  }
+}

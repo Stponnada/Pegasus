@@ -258,9 +258,15 @@ def to_jsonl(turns: list[dict]) -> str:
     return "\n".join(json.dumps(t, ensure_ascii=False) for t in turns)
 
 
-def build_prompt(conversation_jsonl: str, existing_graph_context: str, current_utc_time: str) -> str:
+def build_prompt(
+    conversation_jsonl: str,
+    existing_graph_context: str,
+    current_utc_time: str,
+    *,
+    template: str = EXTRACTOR_SYSTEM_PROMPT,
+) -> str:
     return (
-        EXTRACTOR_SYSTEM_PROMPT.replace("{current_utc_time}", current_utc_time)
+        template.replace("{current_utc_time}", current_utc_time)
         .replace("{existing_graph_context}", existing_graph_context or "(empty - no existing graph)")
         .replace("{conversation_jsonl}", conversation_jsonl)
     )
@@ -294,13 +300,21 @@ def extract(
     api_key: str | None = None,
     now_iso: str | None = None,
     generate_fn=None,
+    prompt_template: str | None = None,
 ) -> ExtractionResult:
     """End-to-end: build prompt -> call LLM -> parse -> normalise.
 
     `existing_keys` (canonical name/alias -> node key) lets relationships
-    reference nodes already in the graph that weren't re-extracted this turn."""
+    reference nodes already in the graph that weren't re-extracted this turn.
+
+    `prompt_template` swaps in an alternate system prompt (e.g. the
+    motivation-driven EXTRACTOR_REASONING_PROMPT for a tool-calling backend)
+    without touching the default Gemini path. None keeps EXTRACTOR_SYSTEM_PROMPT."""
     convo_jsonl = to_jsonl(conversation) if isinstance(conversation, list) else str(conversation)
-    prompt = build_prompt(convo_jsonl, existing_graph_context, now_iso or utcnow_iso())
+    prompt = build_prompt(
+        convo_jsonl, existing_graph_context, now_iso or utcnow_iso(),
+        template=prompt_template or EXTRACTOR_SYSTEM_PROMPT,
+    )
     raw = (
         generate_fn(prompt, model=model, purpose="extract")
         if generate_fn

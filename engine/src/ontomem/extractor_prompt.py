@@ -71,6 +71,13 @@ SECTION 3 - ENTITY RULES
 Required fields per entity:
   text        : canonical name, as specific as possible
   type        : PERSON | ORG | PLACE | EVENT | THING | TOPIC | PREFERENCE | OTHER
+              PREFERENCE is for abstract likes/dislikes, values, or dispositions —
+              not just concrete hobbies (those can be TOPIC). Don't discard a
+              stated preference just because it's phrased as a personal quirk
+              rather than a concrete noun. Example: 'I like systems that fail
+              predictably' -> {"text": "predictable failure modes", "type":
+              "PREFERENCE"}, connected via [User] -PREFERS-> [predictable
+              failure modes]. See Section 4 for the full worked example.
   confidence  : 0.85 default, 0.70 for acknowledged agent concepts, lower if uncertain
   properties  : dict of TIME-INVARIANT facts only (date_of_birth, nationality,
                 birthplace). NEVER put relational or time-variant facts here —
@@ -105,7 +112,15 @@ Required fields per relationship:
                 one_to_many: WORKS_WITH, IS_FRIENDS_WITH, IS_INTERESTED_IN, HAS_VISITED
   evidence    : short verbatim phrase from the text
   snippet     : 2-6 sentence verbatim excerpt including surrounding context. Must be meaningful when read in isolation 6 months from now. Preserve emotional language. Include the assistant turn if it adds essential context.
-  properties  : dict of additional facts about the relationship itself
+  properties  : dict of QUANTIFIERS/QUALIFIERS about the relationship that don't
+                belong in the relation label — duration, frequency, degree.
+                Example: 'I've been doing this for about seven years' on a
+                WORKS_AS edge -> properties: {"tenure_years": 7}. NEVER invent
+                a relation label like WORKS_AS_FOR_7_YEARS to carry this —
+                that breaks the relation vocabulary (unmergeable across
+                edges/users, unqueryable as a number) for something that
+                belongs in properties instead. Most relationships still have
+                empty properties {}.
 
 Direction convention: user-outward preferred for relationships that directly
 involve the user.
@@ -125,6 +140,32 @@ membership is also stated). The Grace Kim/Book Club edge is the one most often
 missed: both entities already have a path to the user independently, so it can
 look redundant to add. It is not — it is the fact that makes the graph reflect
 how these two things relate to EACH OTHER, not just to the user in parallel.
+
+Example (PREFERENCE entity + connecting it to its domain + edge properties —
+three separate ways to under-extract the same sentence): "I like backend work
+because I like systems that fail predictably, if that makes sense. I've been
+doing this for about seven years now" states three durable facts, each easy
+to drop or mishandle:
+  1. emit entity {"text": "predictable failure modes", "type": "PREFERENCE"}
+     with [User] -PREFERS-> [predictable failure modes]
+  2. the preference is scoped to backend engineering, not free-floating —
+     same rule as the Grace Kim/Diocletian cases above: connect the two
+     NON-USER entities to each other too, don't leave the preference with
+     only a path to the user. Also emit [predictable failure modes]
+     -RELEVANT_TO-> [backend software engineering].
+  3. attach {"tenure_years": 7} to the properties of the EXISTING WORKS_AS
+     edge. Do NOT emit a new relationship such as HAS_TENURE or
+     HAS_EXPERIENCE to carry this — a separate "tenure" edge reads, out of
+     context, like the user holds a formal academic tenure appointment,
+     which is both wrong and misleading, and it still doesn't make the
+     number queryable the way properties does. If a duration/quantifier
+     modifies a relationship that already exists in this extraction, put it
+     in THAT edge's properties — never create a second edge to the same
+     target just to carry a number.
+Quantifiers, qualifiers, and dispositions are still durable facts even though
+they don't read as a clean noun-verb-noun triple on first pass — find their
+home in properties or a PREFERENCE node (connected to its domain) rather than
+discarding them or inventing a misleading relation label.
 
 NO ORPHAN ENTITIES (a minimum, not a target): every entity you extract MUST
 participate in at least one relationship. If you extract a person, topic, or

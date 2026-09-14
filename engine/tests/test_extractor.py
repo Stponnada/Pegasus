@@ -3,10 +3,13 @@
 Covers the deterministic halves: JSON parse/salvage and payload normalisation.
 """
 
+import json
+
 import pytest
 
 from ontomem.extractor import (
     build_prompt,
+    extract,
     normalize_payload,
     parse_extractor_json,
     to_jsonl,
@@ -268,3 +271,37 @@ def test_build_prompt_fills_all_placeholders():
 def test_build_prompt_empty_graph_placeholder():
     prompt = build_prompt("CONVO", "", "t")
     assert "(empty - no existing graph)" in prompt
+
+
+def test_build_prompt_accepts_alternate_template():
+    prompt = build_prompt("CONVO_HERE", "GRAPH_HERE", "t", template="custom {conversation_jsonl} / {existing_graph_context} / {current_utc_time}")
+    assert prompt == "custom CONVO_HERE / GRAPH_HERE / t"
+
+
+def test_extract_prompt_template_overrides_default():
+    captured = {}
+
+    def fake_generate(prompt, *, model, purpose):
+        captured["prompt"] = prompt
+        return json.dumps({"entities": [], "relationships": [], "episode": {"summary": "s", "importance": 0.1, "tags": []}})
+
+    result = extract(
+        [{"role": "user", "turn": 1, "text": "hi"}],
+        generate_fn=fake_generate,
+        prompt_template="ALTERNATE PROMPT {conversation_jsonl}",
+    )
+
+    assert "ALTERNATE PROMPT" in captured["prompt"]
+    assert result.episode.summary == "s"
+
+
+def test_extract_prompt_template_none_uses_default():
+    captured = {}
+
+    def fake_generate(prompt, *, model, purpose):
+        captured["prompt"] = prompt
+        return json.dumps({"entities": [], "relationships": [], "episode": {"summary": "s", "importance": 0.1, "tags": []}})
+
+    extract([{"role": "user", "turn": 1, "text": "hi"}], generate_fn=fake_generate)
+
+    assert "WHAT TO EXTRACT" in captured["prompt"]  # a heading unique to EXTRACTOR_SYSTEM_PROMPT

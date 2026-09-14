@@ -46,8 +46,18 @@ GEMINI_API_KEY=... ONTOMEM_DIR=~/.ontomem uv run python -m ontomem.service
 # POST /read /write /retrieve_memory /decay /health  (plain JSON)
 ```
 
-Without a key the service falls back to the offline `HashingEmbedder` (lexical
-seeding only). See `adapters/opencode/README.md` to wire it into opencode.
+With no embedding backend configured (no Gemini key, no `OPENAI_EMBED_*`),
+the service defaults to `LocalEmbedder` (`fastembed`, fully offline) if the
+`local` extra is installed, falling back further to the lexical
+`HashingEmbedder` only if it isn't.
+
+The process self-exits after `ONTOMEM_IDLE_SHUTDOWN_MINUTES` (default 60,
+`0` disables it) with no requests — meant for a detached-spawned deployment
+(e.g. the opencode plugin) that shouldn't run forever on an idle machine.
+Set it to `0` for an always-on deployment (e.g. the cluster dogfooding setup,
+which also drives `/decay` on its own schedule).
+
+See `adapters/opencode/README.md` to wire it into opencode.
 
 Any provider implementing the OpenAI Chat Completions and Embeddings protocols
 can be selected through environment variables; no provider-specific code is

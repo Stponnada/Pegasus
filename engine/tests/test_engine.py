@@ -31,6 +31,160 @@ def _engine(tmp_path, extraction):
     )
 
 
+def test_user_only_extraction_strips_assistant_turns(tmp_path):
+    captured = {}
+
+    def spy_extract(convo, ctx):
+        captured["convo"] = convo
+        return _bill_extraction()
+
+    eng = Engine(
+        tmp_path,
+        embedder=HashingEmbedder(),
+        extract_fn=spy_extract,
+        disambiguate_fn=lambda e, r, s, c: DisambiguationDecision(e.key, NEW, None, 0.0),
+        user_only_extraction=True,
+    )
+    conversation = [
+        {"role": "user", "turn": 1, "text": "I work at Walmart, three years now."},
+        {"role": "assistant", "turn": 2, "text": "That's a long tenure, how do you find it?"},
+        {"role": "user", "turn": 3, "text": "It's fine, tiring some days."},
+    ]
+
+    eng.write(conversation)
+
+    assert [t["role"] for t in captured["convo"]] == ["user", "user"]
+    assert all(t["role"] != "assistant" for t in captured["convo"])
+
+
+def test_user_only_extraction_off_by_default_keeps_both_roles(tmp_path):
+    captured = {}
+
+    def spy_extract(convo, ctx):
+        captured["convo"] = convo
+        return _bill_extraction()
+
+    eng = Engine(
+        tmp_path,
+        embedder=HashingEmbedder(),
+        extract_fn=spy_extract,
+        disambiguate_fn=lambda e, r, s, c: DisambiguationDecision(e.key, NEW, None, 0.0),
+    )
+    conversation = [
+        {"role": "user", "turn": 1, "text": "I work at Walmart, three years now."},
+        {"role": "assistant", "turn": 2, "text": "That's a long tenure, how do you find it?"},
+    ]
+
+    eng.write(conversation)
+
+    assert [t["role"] for t in captured["convo"]] == ["user", "assistant"]
+
+
+def _tool_call(call_id, name, args):
+    return {"id": call_id, "function": {"name": name, "arguments": __import__("json").dumps(args)}}
+
+
+def test_agentic_write_commits_incrementally_and_finishes(tmp_path):
+    """Scripted chat_fn simulating: add Bill, add Walmart, connect them,
+    finish. Each step should already be persisted in the store by the time
+    the NEXT chat_fn call happens (so a real backend could use that as
+    context), and the final result should look like a normal write()."""
+    calls = []
+
+    def chat_fn(messages, *, model, tools):
+        calls.append([m.get("role") for m in messages])
+        step = len(calls)
+        if step == 1:
+            return {"content": "", "tool_calls": [_tool_call("c1", "add_entity",
+                {"text": "Bill", "type": "PERSON", "confidence": 0.9, "properties": {}, "aliases": [], "candidate_merge_key": None})]}
+        if step == 2:
+            # By now Bill must already be in the store (incremental, not batched).
+            assert "PERSON::bill" in eng.store.nodes
+            return {"content": "", "tool_calls": [_tool_call("c2", "add_entity",
+                {"text": "Walmart", "type": "ORG", "confidence": 0.9, "properties": {}, "aliases": [], "candidate_merge_key": None})]}
+        if step == 3:
+            return {"content": "", "tool_calls": [_tool_call("c3", "add_relationship", {
+                "source": "Bill", "relation": "WORKS_AT", "target": "Walmart",
+                "confidence": 0.9, "stability": "mutable", "ttl_days": None,
+                "cardinality": "one_to_one", "evidence": "works at Walmart",
+                "snippet": "Bill said he works at Walmart.", "properties": {},
+            })]}
+        return {"content": "", "tool_calls": [_tool_call("c4", "finish_extraction",
+            {"summary": "Bill mentioned working at Walmart.", "importance": 0.5, "tags": ["career"]})]}
+
+    eng = Engine(
+        tmp_path,
+        embedder=HashingEmbedder(),
+        disambiguate_fn=lambda e, r, s, c: DisambiguationDecision(e.key, NEW, None, 0.0),
+        chat_fn=chat_fn,
+        agentic_extraction=True,
+    )
+
+    result = eng.write([{"role": "user", "turn": 1, "text": "I work at Walmart."}])
+
+    assert result["nodes_created"] == 2
+    assert result["edges_created"] == 1
+    assert result["warnings"] == []
+    assert len(calls) == 4  # stopped right after finish_extraction, no extra call
+    episode = eng.store.get_episode(result["episode_id"])
+    assert episode.summary == "Bill mentioned working at Walmart."
+    assert episode.tags == ["career"]
+    assert eng.store.get_edge("PERSON::bill::WORKS_AT::ORG::walmart") is not None
+
+
+def test_agentic_synthesizes_missing_endpoint(tmp_path):
+    """add_relationship naming a target that was never add_entity'd should
+    get a provisional node instead of being silently dropped -- same
+    anchored-auto-create policy as the batch path (extractor.py's
+    _normalize_relationships): synthesise when exactly ONE endpoint is
+    missing. (If BOTH are missing, dropping is correct -- too speculative to
+    trust -- which is covered by the neither-exists branch's own warning
+    path, not this test.)"""
+    def chat_fn(messages, *, model, tools):
+        step = sum(1 for m in messages if m.get("role") == "assistant") + 1
+        if step == 1:
+            return {"content": "", "tool_calls": [_tool_call("c1", "add_entity",
+                {"text": "Bill", "type": "PERSON", "confidence": 0.9, "properties": {}, "aliases": [], "candidate_merge_key": None})]}
+        if step == 2:
+            return {"content": "", "tool_calls": [_tool_call("c2", "add_relationship", {
+                "source": "Bill", "relation": "WORKS_AT", "target": "Walmart",
+                "confidence": 0.9, "stability": "mutable", "ttl_days": None,
+                "cardinality": "one_to_one", "evidence": "", "snippet": "x" * 20, "properties": {},
+            })]}
+        return {"content": "", "tool_calls": [_tool_call("c3", "finish_extraction",
+            {"summary": "s", "importance": 0.3, "tags": []})]}
+
+    eng = Engine(
+        tmp_path, embedder=HashingEmbedder(),
+        disambiguate_fn=lambda e, r, s, c: DisambiguationDecision(e.key, NEW, None, 0.0),
+        chat_fn=chat_fn, agentic_extraction=True,
+    )
+
+    result = eng.write([{"role": "user", "turn": 1, "text": "I work at Walmart."}])
+
+    assert result["edges_created"] == 1
+    assert any("synthesised provisional node" in w for w in result["warnings"])
+    assert "PERSON::bill" in eng.store.nodes and "OTHER::walmart" in eng.store.nodes
+
+
+def test_agentic_hits_safety_cap_without_finish_extraction(tmp_path):
+    def chat_fn(messages, *, model, tools):
+        return {"content": "", "tool_calls": [_tool_call("cX", "add_entity", {
+            "text": f"Node{len(messages)}", "type": "THING", "confidence": 0.5,
+            "properties": {}, "aliases": [], "candidate_merge_key": None,
+        })]}
+
+    eng = Engine(
+        tmp_path, embedder=HashingEmbedder(),
+        disambiguate_fn=lambda e, r, s, c: DisambiguationDecision(e.key, NEW, None, 0.0),
+        chat_fn=chat_fn, agentic_extraction=True,
+    )
+
+    result = eng.write([{"role": "user", "turn": 1, "text": "..."}])
+
+    assert any("safety cap" in w for w in result["warnings"])
+
+
 def test_write_then_read_cycle(tmp_path):
     eng = _engine(tmp_path, _bill_extraction())
     w = eng.write([{"role": "user", "text": "I work at Walmart, three years now."}])
@@ -143,3 +297,52 @@ def test_decay_flags_dormant_without_deleting(tmp_path):
     assert stats["edges_dormant"] == 1
     # never deleted — still retrievable
     assert eng.store.get_edge(edge_key) is not None
+
+
+def test_decay_second_call_within_24h_is_a_no_op(tmp_path):
+    """Self-gating (see Engine.decay's docstring): a caller that fires /decay
+    on every opencode process start, with no cron, must not redo real work
+    (and reset every edge's updated_at clock) each time."""
+    eng = _engine(tmp_path, _bill_extraction())
+    eng.write([{"role": "user", "text": "Walmart"}])
+    edge_key = "PERSON::bill::WORKS_AT::ORG::walmart"
+    edge = eng.store.get_edge(edge_key)
+    edge.updated_at = (_now() - timedelta(days=10)).isoformat()
+
+    first = eng.decay()
+    strength_after_first = eng.store.get_edge(edge_key).strength
+    assert first["edges_decayed"] == 1
+
+    second = eng.decay()  # same process, minutes later in wall-clock terms
+
+    assert second == {"edges_decayed": 0, "edges_dormant": 0, "skipped": True}
+    assert eng.store.get_edge(edge_key).strength == strength_after_first
+
+
+def test_decay_runs_again_after_24h_elapsed(tmp_path):
+    eng = _engine(tmp_path, _bill_extraction())
+    eng.write([{"role": "user", "text": "Walmart"}])
+    edge_key = "PERSON::bill::WORKS_AT::ORG::walmart"
+    edge = eng.store.get_edge(edge_key)
+    edge.stability = "mutable"
+    edge.updated_at = (_now() - timedelta(days=10)).isoformat()
+
+    first_now = _now()
+    eng.decay(now=first_now)
+    strength_after_first = eng.store.get_edge(edge_key).strength
+
+    stats = eng.decay(now=first_now + timedelta(hours=25))
+
+    assert stats["edges_decayed"] == 1
+    assert eng.store.get_edge(edge_key).strength < strength_after_first
+
+
+def test_decay_force_bypasses_the_gate(tmp_path):
+    eng = _engine(tmp_path, _bill_extraction())
+    eng.write([{"role": "user", "text": "Walmart"}])
+    eng.decay()
+
+    stats = eng.decay(force=True)
+
+    assert "skipped" not in stats
+    assert stats["edges_decayed"] == 1

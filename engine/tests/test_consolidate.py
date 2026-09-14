@@ -199,6 +199,41 @@ def test_plan_supersessions_ignores_same_relation_rementions():
     assert plan_supersessions(ext, plan, store, _boom) == []
 
 
+def _managed_by_extraction(cardinality="one_to_one"):
+    return _extraction(
+        [Node.create("PERSON", "Renee"), Node.create("PERSON", "Desmond")],
+        [Edge.create("PERSON::renee", "MANAGED_BY", "PERSON::desmond", snippet="new manager", cardinality=cardinality)],
+    )
+
+
+def _store_with_managed_by(cardinality="one_to_one"):
+    store = Store()
+    store.add_node(Node.create("PERSON", "Renee"))
+    store.add_node(Node.create("PERSON", "Priya"))
+    store.add_edge(Edge.create("PERSON::renee", "MANAGED_BY", "PERSON::priya", snippet="old manager", cardinality=cardinality))
+    return store
+
+
+def test_plan_supersessions_detects_same_relation_different_target_when_one_to_one():
+    store = _store_with_managed_by("one_to_one")
+    ext = _managed_by_extraction("one_to_one")
+    plan = plan_merges(ext, store, _never_merge)
+    sups = plan_supersessions(ext, plan, store, _supersede_stub(SUPERSEDES))
+    assert len(sups) == 1
+    assert sups[0].old_edge_key == "PERSON::renee::MANAGED_BY::PERSON::priya"
+
+
+def test_plan_supersessions_ignores_same_relation_different_target_when_one_to_many():
+    # both edges one_to_many (e.g. HAS_FRIEND priya, HAS_FRIEND desmond) -- a second
+    # target is a genuinely independent fact, not a replacement; stub must not fire
+    store = _store_with_managed_by("one_to_many")
+    ext = _managed_by_extraction("one_to_many")
+    plan = plan_merges(ext, store, _never_merge)
+    def _boom(old, new, store, ctx):
+        raise AssertionError("supersede_fn called for a one_to_many relation with a new target")
+    assert plan_supersessions(ext, plan, store, _boom) == []
+
+
 def test_apply_write_demotes_superseded_edge_without_deleting():
     store = _store_with_edge("CONSIDERING_TRANSFER_TO")
     ext = _transfer_extraction()

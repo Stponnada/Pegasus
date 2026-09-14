@@ -15,12 +15,23 @@ Endpoints (all POST, JSON body):
 GET endpoints (read-only, for the memory viewer):
   /graph           -> {nodes: [...], edges: [...]}  live snapshot, strength decayed to "now"
   /viewer, /        -> the viewer HTML page (engine/src/ontomem/static/viewer.html)
+
+Process lifecycle: this is a plain long-running process, not a system service
+-- nothing here daemonises it, restarts it on crash, or starts it at boot.
+The packaged opencode plugin spawns it detached (so it survives the spawning
+opencode process exiting) and relies on ONTOMEM_IDLE_SHUTDOWN_MINUTES (see
+run()) for it to wind itself down after actual inactivity, rather than
+running forever on a machine no opencode session is using. A deployment that
+wants it always-on regardless of activity (e.g. the cluster dogfooding setup)
+sets that to 0.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import threading
+import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -28,7 +39,7 @@ from pathlib import Path
 from .decay import DORMANCY_THRESHOLD, decayed_strength
 from .embeddings import HashingEmbedder, OpenAICompatibleEmbedder
 from .engine import Engine
-from .inference import OpenAICompatibleGenerator
+from .inference import HostCallbackGenerator, OpenAICompatibleGenerator
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -104,6 +115,7 @@ def graph_snapshot(engine: Engine) -> dict:
                 "stability": edge.stability,
                 "cardinality": edge.cardinality,
                 "snippet": edge.snippet,
+                "properties": dict(edge.properties),
                 "dormant": strength < DORMANCY_THRESHOLD,
                 "superseded_by": edge.properties.get("superseded_by"),
                 "updated_at": edge.updated_at,
@@ -167,8 +179,50 @@ def make_engine_from_env(base_dir: str | None = None) -> Engine:
         or openai_key
     )
     generate_fn = None
-    if llm_base_url:
+    chat_fn = None
+    extraction_prompt_template = None
+    # Opt-in, mutually exclusive with ONTOMEM_EXTRACTION_TOOL_CALLING: the
+    # agentic (per-item) extraction mode dispatches entirely inside
+    # Engine._write_agentic before generate_fn/extraction_prompt_template are
+    # ever consulted, so it needs only chat_fn wired -- see engine.py's
+    # write().
+    agentic_extraction = os.environ.get("ONTOMEM_AGENTIC_EXTRACTION") == "1"
+    # ONTOMEM_HOST_CALLBACK_URL: delegate generation to a local host process
+    # (the opencode plugin) instead of any model API the engine itself holds
+    # a key for -- the host fulfills each call using whatever provider it's
+    # already authenticated for (e.g. the user's own OpenCode Zen/Go plan).
+    # Mutually exclusive with the OpenAI-compatible cluster path below: they
+    # are two different deployment stories (self-hosted backend vs. riding
+    # on the host's own model access), not something to combine.
+    host_callback_url = os.environ.get("ONTOMEM_HOST_CALLBACK_URL")
+    if host_callback_url:
+        if agentic_extraction:
+            raise RuntimeError(
+                "ONTOMEM_AGENTIC_EXTRACTION=1 is not supported with ONTOMEM_HOST_CALLBACK_URL "
+                "-- the agentic tool-calling loop needs chat_fn, which the host callback "
+                "contract (single prompt in, text out) does not provide"
+            )
+        generate_fn = HostCallbackGenerator(
+            host_callback_url,
+            timeout=float(os.environ.get("ONTOMEM_HOST_CALLBACK_TIMEOUT", "120")),
+            audit_path=os.environ.get("ONTOMEM_LLM_AUDIT_PATH"),
+            audit_content=os.environ.get("ONTOMEM_LLM_AUDIT_CONTENT") == "1",
+        ).generate
+    elif llm_base_url:
         audit_path = os.environ.get("ONTOMEM_LLM_AUDIT_PATH")
+        # Opt-in: forces extraction through a tool-call JSON Schema instead of
+        # freeform JSON, and swaps in the motivation-driven reasoning prompt.
+        # Off by default so existing OpenAI-compatible setups (e.g. a backend
+        # without reliable tool-call support) are unaffected. Gemini's path
+        # never touches this.
+        use_tool_calling = os.environ.get("ONTOMEM_EXTRACTION_TOOL_CALLING") == "1"
+        extraction_tool_schema = None
+        if use_tool_calling:
+            from .extraction_schema import EXTRACTION_TOOL_SCHEMA
+            from .extractor_prompt_reasoning import EXTRACTOR_REASONING_PROMPT
+
+            extraction_tool_schema = EXTRACTION_TOOL_SCHEMA
+            extraction_prompt_template = EXTRACTOR_REASONING_PROMPT
         generator = OpenAICompatibleGenerator(
             llm_base_url,
             api_key=openai_key,
@@ -176,8 +230,16 @@ def make_engine_from_env(base_dir: str | None = None) -> Engine:
             max_tokens=int(os.environ.get("ONTOMEM_LLM_MAX_TOKENS", "8192")),
             audit_path=audit_path,
             audit_content=os.environ.get("ONTOMEM_LLM_AUDIT_CONTENT") == "1",
+            extraction_tool_schema=extraction_tool_schema,
         )
         generate_fn = generator.generate
+        if agentic_extraction:
+            chat_fn = generator.chat_with_tools
+    elif agentic_extraction:
+        raise RuntimeError(
+            "ONTOMEM_AGENTIC_EXTRACTION=1 requires an OpenAI-compatible inference "
+            "endpoint (set OPENAI_BASE_URL or ONTOMEM_LLM_BASE_URL)"
+        )
 
     if embed_base_url:
         if not embed_model:
@@ -196,22 +258,82 @@ def make_engine_from_env(base_dir: str | None = None) -> Engine:
         pinned_key = None if has_pool else single_key
         embedder = GeminiEmbedder(api_key=None if embed_keys else pinned_key, keys=embed_keys)
     else:
+        # No explicit embedding backend configured -- this is the packaged
+        # plugin's default path (host-callback generation, no embedding API
+        # of its own to reuse). Prefer a real local semantic embedder over
+        # pure lexical hashing when the `local` extra (fastembed) is
+        # installed; fall back to HashingEmbedder only if it truly isn't.
+        # The presence check happens here, eagerly, rather than deferring to
+        # LocalEmbedder's own lazy import inside embed() -- surfacing a
+        # missing dependency at service startup beats an opaque failure deep
+        # inside the first retrieval/write call.
         pinned_key = None
-        embedder = HashingEmbedder()
+        try:
+            import fastembed  # noqa: F401
+
+            from .embeddings import LocalEmbedder
+
+            embedder = LocalEmbedder(cache_dir=os.path.join(base_dir, "fastembed_cache"))
+        except ImportError:
+            embedder = HashingEmbedder()
 
     pinned_key = None if has_pool or llm_base_url else single_key
     return Engine(
         base_dir, embedder=embedder, model=model, api_key=pinned_key,
-        generate_fn=generate_fn,
+        generate_fn=generate_fn, chat_fn=chat_fn, extraction_prompt_template=extraction_prompt_template,
+        user_only_extraction=os.environ.get("ONTOMEM_USER_ONLY_EXTRACTION") == "1",
+        agentic_extraction=agentic_extraction,
     )
 
 
-def _make_handler(engine: Engine):
+class _ActivityTracker:
+    """Tracks time since the last request, across the ThreadingHTTPServer's
+    one-thread-per-request model -- see _idle_watchdog. Lock-protected since
+    `touch()` (every request thread) and `idle_seconds()` (the single
+    watchdog thread) run concurrently."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._last = time.monotonic()
+
+    def touch(self) -> None:
+        with self._lock:
+            self._last = time.monotonic()
+
+    def idle_seconds(self) -> float:
+        with self._lock:
+            return time.monotonic() - self._last
+
+
+def _idle_watchdog(activity: _ActivityTracker, *, limit_seconds: float, poll_seconds: float = 60.0, exit_fn=None) -> None:
+    """Runs on its own daemon thread (see run()): polls every `poll_seconds`
+    and calls `exit_fn` once the server has gone `limit_seconds` without a
+    request. Exists so the packaged opencode plugin's detached-spawned
+    service (see plugin/src/index.ts's startEngineService) doesn't run
+    forever on a machine no opencode session is actually using -- it winds
+    itself down, and the plugin's own health-check-and-restart-if-needed
+    logic brings it back on the next real use. `exit_fn` is injectable so
+    this loop is unit-testable without actually killing the test process;
+    production default is os._exit(0) (a plain HTTP-serving daemon thread has
+    nothing to flush -- every write already persists synchronously in
+    Engine._persist -- so a hard exit is safe and simpler than coordinating a
+    graceful ThreadingHTTPServer.shutdown() from a different thread)."""
+    exit_fn = exit_fn or (lambda: os._exit(0))
+    while True:
+        time.sleep(poll_seconds)
+        if activity.idle_seconds() >= limit_seconds:
+            exit_fn()
+            return
+
+
+def _make_handler(engine: Engine, activity: _ActivityTracker | None = None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):  # silence default stderr logging
             pass
 
         def do_GET(self):
+            if activity:
+                activity.touch()
             path = self.path.split("?", 1)[0]
             if path == "/graph":
                 return self._send(200, graph_snapshot(engine))
@@ -225,6 +347,8 @@ def _make_handler(engine: Engine):
             return self._send(404, {"error": f"unknown route: {path}"})
 
         def do_POST(self):
+            if activity:
+                activity.touch()
             length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(length) if length else b"{}"
             try:
@@ -251,8 +375,23 @@ def _make_handler(engine: Engine):
 
 def run(host: str = "127.0.0.1", port: int = 8765, base_dir: str | None = None) -> None:
     engine = make_engine_from_env(base_dir)
-    server = ThreadingHTTPServer((host, port), _make_handler(engine))
-    print(f"ontomem service on http://{host}:{port}  (dir={engine.dir})")
+    activity = _ActivityTracker()
+    server = ThreadingHTTPServer((host, port), _make_handler(engine, activity))
+
+    # ONTOMEM_IDLE_SHUTDOWN_MINUTES: how long with no request before this
+    # process exits itself (0 disables it -- always-on, e.g. the cluster
+    # dogfooding deployment). Defaults on for the packaged-plugin path, where
+    # a detached, spawn-and-forget service would otherwise run forever on a
+    # machine no opencode session is using; the plugin's own health-check
+    # brings it back on the next real use.
+    idle_minutes = float(os.environ.get("ONTOMEM_IDLE_SHUTDOWN_MINUTES", "60"))
+    if idle_minutes > 0:
+        watchdog = threading.Thread(
+            target=_idle_watchdog, args=(activity,), kwargs={"limit_seconds": idle_minutes * 60}, daemon=True,
+        )
+        watchdog.start()
+
+    print(f"ontomem service on http://{host}:{port}  (dir={engine.dir}, idle_shutdown={idle_minutes}min)")
     server.serve_forever()
 
 

@@ -1,58 +1,98 @@
 # Cluster Inference
 
-`serve_ontomem.sbatch` starts two OpenAI-compatible vLLM services in one Slurm
-allocation:
+Gemma 4 and the embedder are exposed as ordinary OpenAI-compatible APIs.
+Slurm allocation, ports, service manifests, and Mac-to-cluster bridging are
+handled by the scripts in this directory.
 
-- Qwen2.5-32B-Instruct for extraction, merge disambiguation, and supersession.
-- `all-roberta-large-v1` for dense embeddings.
+## Fast Path
 
-Submit from the cluster after copying the script:
+On the cluster, start or reuse both services and wait for readiness:
 
 ```bash
-mkdir -p /scratch/gururaj/Sriniketh/ontomem-inference/logs
-sbatch serve_ontomem.sbatch
+Cluster
+ontomem all
 ```
 
-Once the job is running, read
-`/scratch/gururaj/Sriniketh/ontomem-inference/connection.env`. It records the
-allocated node and per-job ports. Forward both services to the local machine:
+Then run this from any project directory on the Mac:
 
 ```bash
-ssh -N \
-  -L 18000:${NODE}:${LLM_PORT} \
-  -L 18001:${NODE}:${EMBED_PORT} \
-  gururaj@hpc.bits-hyderabad.ac.in
+gemma-code
 ```
 
-The local engine then uses `http://127.0.0.1:18000/v1` for generation and
-`http://127.0.0.1:18001/v1` for embeddings. Do not expose compute-node ports to
-the public internet.
+`gemma-code` connects both localhost bridges, starts or reuses the Pegasus
+memory engine, and opens the plugin-capable local OpenCode build with
+`ontomem-h100/ontomem-llm` selected. The launch directory remains the active
+coding workspace. Run `/memory` inside OpenCode to open the graph viewer.
+
+The old `qwen-code` command is retained as a compatibility alias for
+`gemma-code`; it no longer selects Qwen.
+
+## Services and Operations
+
+The cluster command is installed at `/home/gururaj/bin/ontomem`:
 
 ```bash
-export OPENAI_API_KEY=ontomem-cluster
-export OPENAI_BASE_URL=http://127.0.0.1:18000/v1
-export OPENAI_MODEL=ontomem-llm
-export OPENAI_EMBED_API_KEY=ontomem-cluster
-export OPENAI_EMBED_BASE_URL=http://127.0.0.1:18001/v1
-export OPENAI_EMBED_MODEL=ontomem-embed
+ontomem gemma          # generation only
+ontomem embed          # embeddings only
+ontomem all            # Gemma and embedder
+ontomem status
+ontomem info gemma
+ontomem logs gemma
+ontomem wait gemma
+ontomem stop all
 ```
 
-## Prepared workflow
+Starting a service is idempotent: a pending or running job is reused. Pressing
+Ctrl-C stops only the readiness wait, not the Slurm job. The legacy
+`ontomem qwen` command remains available solely as a fallback.
 
-Use three terminals from the repository root:
+On the Mac, bridge commands are also idempotent:
 
 ```bash
-# Terminal 1: keep the tunnel open
-./cluster/tunnel_ontomem.sh
+ontomem-bridge start all
+ontomem-bridge status all
+ontomem-bridge stop all
+```
 
-# Terminal 2: configure and check both endpoints
-source cluster/cluster_env.sh
-./cluster/check_ontomem.sh
+The local endpoints are:
 
-# Terminal 3: run a three-conversation pilot
+- Chat: `http://127.0.0.1:18000/v1`, model `ontomem-llm`
+- Embeddings: `http://127.0.0.1:18001/v1`, model `ontomem-embed`
+- Bearer token: `ontomem-cluster`
+
+## Gemma Runtime
+
+`serve_gemma.sbatch` serves the dense `google/gemma-4-31B-it` checkpoint from
+an isolated official vLLM Gemma 4 container. Thinking is enabled by default.
+The Gemma 4 reasoning and tool-call parsers, official tool chat template,
+automatic tool choice, eager execution, prefix caching, FP8 KV cache, and a
+16K operational context limit are enabled. Multimodal towers are disabled
+because this stack needs text and tools only.
+
+The model config must continue to report `enable_moe_block: false`, 60 layers,
+and a hidden size of 5376. Those values distinguish the 31B dense checkpoint
+from the 26B-A4B mixture-of-experts model.
+
+`serve_gemma.sbatch` and `serve_embed.sbatch` request one H100 and four CPUs
+each so Slurm can schedule them independently. The embedder retains its actual
+256-token input limit.
+
+Each service publishes its current node and private port in:
+
+```text
+/scratch/gururaj/Sriniketh/ontomem-inference/gemma.env
+/scratch/gururaj/Sriniketh/ontomem-inference/embed.env
+```
+
+Normal SSH TCP forwarding is unavailable on the cluster.
+`stdio_bridge.py` transports each localhost connection through SSH standard
+I/O and a small overlapping Slurm step.
+
+## Manual Dogfood Campaign
+
+The inference launchers do not run the campaign automatically:
+
+```bash
 source cluster/cluster_env.sh
 engine/scripts/run_e2e_campaign.sh
 ```
-
-The pilot is resumable under `engine/e2e_runs/synthetic_life_v1/`. After
-inspecting it, set `E2E_LIMIT=` to continue through all 20 sessions.
