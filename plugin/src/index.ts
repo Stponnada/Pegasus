@@ -95,7 +95,18 @@ async function startEngineService(callbackUrl: string): Promise<boolean> {
   try {
     await execFileAsync("uv", ["sync", "--extra", "local"], { cwd: ENGINE_RUNTIME_DIR })
   } catch (err) {
-    log(`uv sync failed: ${errorMessage(err)}`)
+    // Deliberately NOT falling back to `uv sync` without the local extra
+    // here. That would silently start the service on the lexical
+    // HashingEmbedder instead of real semantic embeddings -- a real quality
+    // downgrade with no visible signal, which is worse than a loud failure:
+    // the user would just conclude memory recall "doesn't really work"
+    // with no idea why. engine/pyproject.toml's `local` extra already pins
+    // onnxruntime to a version with real wheels on every platform this
+    // plugin supports (including macOS Intel, which needs a specific
+    // version window -- see that file's comment); a failure here means an
+    // actually-unexpected platform/environment problem worth surfacing,
+    // not quietly working around.
+    log(`uv sync --extra local failed, engine will not start: ${errorMessage(err)}`)
     return false
   }
 

@@ -8,7 +8,19 @@ dependencies = ["numpy>=1.26"]
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 llm = ["google-genai>=1.0"]
-local = ["fastembed>=0.3"]
+local = [
+    "fastembed>=0.3",
+    # onnxruntime (fastembed's own dependency) does not consistently ship
+    # macOS x86_64 (Intel) wheels -- it dropped them after 1.16.3, briefly
+    # shipped them again for 1.23.0-1.23.2, then dropped them again from
+    # 1.24 onward (verified against PyPI's actual release files, not just
+    # changelog claims). Unconstrained, uv resolves the newest onnxruntime
+    # (currently 1.30.x), which has no wheel at all on that platform and
+    # fails outright. Pinning to the 1.23.x window ONLY on that platform
+    # gets Intel Mac a real onnxruntime instead of failing -- every other
+    # platform is left unconstrained to get the actual latest.
+    "onnxruntime>=1.23,<1.24; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+]
 
 [build-system]
 requires = ["hatchling"]

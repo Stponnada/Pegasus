@@ -37,6 +37,17 @@ will remember.
   (a single small binary; it provisions Python itself if needed). This is
   the one prerequisite — everything else is automatic.
 
+Local embeddings work on **Apple Silicon, Intel Mac, Linux, and Windows**.
+Intel Mac needs a specific pin to get there: `onnxruntime` (fastembed's own
+dependency) doesn't consistently ship macOS x86_64 wheels release-to-release
+— it dropped them after 1.16.3, brought them back for 1.23.0-1.23.2, then
+dropped them again from 1.24 onward. `engine/pyproject.toml`'s `local` extra
+pins to that 1.23.x window specifically on that platform (every other
+platform is left unconstrained to get the actual latest). If a future
+platform genuinely has no working `onnxruntime` at all, the plugin fails
+loudly (logged, engine doesn't start) rather than silently degrading to a
+worse embedder — memory quality shouldn't be a surprise.
+
 ## First run
 
 On first activation the plugin:

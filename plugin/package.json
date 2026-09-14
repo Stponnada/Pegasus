@@ -1,6 +1,6 @@
 {
   "name": "pegasus-opencode",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Ontology-based long-term memory for opencode. Install, connect your existing opencode auth, done -- no API keys, no separate service to run, no cluster.",
   "type": "module",
   "license": "MIT",
