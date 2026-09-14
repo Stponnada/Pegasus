@@ -397,8 +397,32 @@ async function loadGraph(retriesLeft = 5) {
       }
     });
   } else {
-    nodesDS.clear(); nodesDS.add(graph.nodes.map(nodeSpec));
-    edgesDS.clear(); edgesDS.add(graph.edges.map(edgeSpec));
+    // Diff against the live DataSets instead of clear()+add() -- a
+    // sequential extraction commits one node/edge at a time (that's the
+    // whole point, see CLAUDE.md's "sequential commit" fix), and this
+    // function is now polled (see setInterval below) specifically so the
+    // graph fills in live instead of jumping from empty to full the moment
+    // the user happens to hit refresh. clear()+add() would recreate every
+    // node on every poll, discarding vis's per-node layout state and
+    // fighting the user's own dragging/panning during a long extraction.
+    const incomingNodeIds = new Set(graph.nodes.map((n) => n.id));
+    const incomingEdgeIds = new Set(graph.edges.map((e) => e.id));
+    const staleNodeIds = nodesDS.getIds().filter((id) => !incomingNodeIds.has(id));
+    const staleEdgeIds = edgesDS.getIds().filter((id) => !incomingEdgeIds.has(id));
+    const addedNodeCount = graph.nodes.filter((n) => !nodesDS.get(n.id)).length;
+    if (staleEdgeIds.length) edgesDS.remove(staleEdgeIds);
+    if (staleNodeIds.length) nodesDS.remove(staleNodeIds);
+    nodesDS.update(graph.nodes.map(nodeSpec));
+    edgesDS.update(graph.edges.map(edgeSpec));
+    // Freshly-added nodes land at an arbitrary/default position with
+    // physics off (stabilization only ever runs once, above) -- give them
+    // one short physics burst to settle in near their new neighbours, then
+    // disable it again so the user's own dragging isn't fought afterward.
+    if (addedNodeCount > 0) {
+      network.setOptions({ physics: true });
+      network.once("stabilizationIterationsDone", () => network.setOptions({ physics: false }));
+      network.stabilize();
+    }
   }
   document.getElementById("meta").textContent = `${graph.nodes.length} nodes · ${graph.edges.length} edges`;
 }
@@ -545,6 +569,11 @@ renderLegend();
 loadGraph();
 pollLiveRead();
 setInterval(pollLiveRead, 1500);
+// Same "poll, don't just load once" treatment as pollLiveRead above -- a
+// sequential extraction can take minutes and commits incrementally; without
+// this the graph only ever updated on page load or a manual refresh click,
+// so it looked like it jumped from empty straight to fully built.
+setInterval(loadGraph, 2000);
 </script>
 </body>
 </html>

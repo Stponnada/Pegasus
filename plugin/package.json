@@ -1,6 +1,6 @@
 {
   "name": "pegasus-opencode",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Ontology-based long-term memory for opencode. Install, connect your existing opencode auth, done -- no API keys, no separate service to run, no cluster.",
   "type": "module",
   "license": "MIT",
@@ -21,7 +21,7 @@
   "files": [
     "src",
     "engine",
-    "scripts/sync-engine.sh",
+    "scripts",
     "README.md",
     "LICENSE"
   ],
@@ -31,7 +31,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "^1.18.0"
+    "@opencode-ai/plugin": "^1.18.0",
+    "@opencode-ai/sdk": "^1.18.0"
   },
   "devDependencies": {
     "typescript": "^5.6.0",

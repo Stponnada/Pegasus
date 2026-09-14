@@ -1,7 +1,5 @@
-import type { Config, Plugin } from "@opencode-ai/plugin"
+import type { Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
-
-type SessionClient = Parameters<Plugin>[0]["client"]
 import { execFile, spawn } from "node:child_process"
 import { mkdirSync, writeFileSync, cpSync, existsSync, readFileSync, rmSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
@@ -59,10 +57,9 @@ const HEALTH_POLL_INTERVAL_MS = 2000
 // tools, instead of building the whole graph in its reasoning trace and
 // emitting it all at the end (which the notebook found times out on longer
 // conversations and produces worse graphs, regardless of model capability).
-// Opt-in for now -- pass {"agenticExtraction": true} in the plugin's config
-// entry -- until the "does this survive /exit" question below is verified
-// live (see runAgenticWrite's comment) and it can become the default.
-const AGENTIC_EXTRACTION_AGENT = "ontomem-extract"
+// Default since 0.2.0 -- pass {"agenticExtraction": false} in the plugin's
+// config entry to opt back out (see spawnDetachedAgenticExtraction's
+// comment for the current mechanism and what it replaced).
 const AGENTIC_TOOL_NAMES = ["ontomem_add_entity", "ontomem_add_relationship", "ontomem_finish_extraction"] as const
 const AGENTIC_CALL_TIMEOUT_MS = 30000
 
@@ -152,6 +149,23 @@ async function startEngineService(callbackUrl: string): Promise<boolean> {
       ...process.env,
       ONTOMEM_DIR: ENGINE_DATA_DIR,
       ONTOMEM_HOST_CALLBACK_URL: callbackUrl,
+      // Confirmed live (Trevor/Deloitte test conversation): without this,
+      // the extractor reads both roles, including the assistant's own long
+      // replies -- which it then has to spend reasoning tokens parsing back
+      // out of, for zero benefit (assistant text was never a source of
+      // durable facts to begin with; see the "acknowledged agent concepts"
+      // exception in the spec, which is the only case that should matter
+      // and doesn't require sending full assistant turns to get). The
+      // notebook this plugin's sequential-extraction fix came from
+      // independently found the same thing for reasoning-model extraction
+      // specifically: parsing the agent's own turns is exactly what made
+      // extraction slow. Stage 0 context assembly (engine.py's
+      // assemble_context call) still sees the full conversation, both
+      // roles -- only the text actually handed to the extractor is
+      // user-only. Always on for the packaged plugin; not conditional on
+      // agenticExtraction, since the reasoning applies equally to the
+      // single-shot path.
+      ONTOMEM_USER_ONLY_EXTRACTION: "1",
     },
   })
   child.unref()
@@ -266,20 +280,14 @@ function markSessionWritten(sessionID: string, turnCount: number): void {
   }
 }
 
-// Maps an opencode session id (the DEDICATED extraction session
-// runAgenticWrite creates -- never the user's own coding session) to the
-// engine-side agentic session id returned by /agentic/start. Looked up by
-// each ontomem_* tool's execute() via its ToolContext.sessionID, both to
-// find which engine-side session to apply the call to AND, as the
-// defense-in-depth scoping backstop (see this file's header), to refuse to
-// act at all if a call arrives from any OTHER session -- the agent-level
-// tool restriction (see the config hook below) should already prevent that,
-// but this doesn't rely on it being airtight.
-const agenticSessionByOpencodeSession = new Map<string, string>()
-
-async function startAgenticWrite(conversation: unknown): Promise<{ session_id: string; prompt_text: string } | null> {
-  return callService("/agentic/start", { conversation }, AGENTIC_CALL_TIMEOUT_MS)
-}
+// Set only inside the dedicated, single-purpose `opencode serve` process
+// spawned by scripts/run-agentic-extraction.ts (see that file's header for
+// why the extraction has to run there, detached, instead of in-process).
+// The extraction session is the ONLY session that will ever exist on that
+// process, so its presence is treated as "this whole process is scoped to
+// the one extraction session" -- no per-opencode-session bookkeeping needed;
+// every ontomem_* tool call arriving anywhere in this process applies to it.
+const DETACHED_EXTRACTION_SESSION_ID = process.env.ONTOMEM_DETACHED_EXTRACTION_SESSION_ID ?? null
 
 async function applyAgenticToolCall(
   sessionId: string,
@@ -307,62 +315,90 @@ function flushWriteInBackground(conversation: unknown): void {
   child.unref()
 }
 
-// Sequential-extraction alternative to flushWriteInBackground (see the
-// AGENTIC_EXTRACTION_AGENT comment above for why this exists). Two real
-// HTTP round-trips happen here rather than a curl-and-forget like the
-// batch path: /agentic/start is a fast, deterministic, no-LLM call (Stage 0
-// context assembly only), so awaiting it briefly in dispose is fine -- the
-// SAME reasoning that makes awaiting a single request there acceptable
-// doesn't extend to the actual multi-minute tool-calling loop, which is why
-// that part is still handed off to a detached process below.
+const AGENTIC_EXTRACTION_SCRIPT = join(PLUGIN_DIR, "..", "scripts", "run-agentic-extraction.ts")
+
+// Sequential-extraction alternative to flushWriteInBackground.
 //
-// OPEN QUESTION, not yet verified against a real opencode+Zen session: does
-// the server process behind a plain `opencode` (TUI) launch actually
-// outlive /exit long enough for a multi-minute native tool-calling loop to
-// finish, or does the whole process (server included) tear down once
-// dispose() resolves? If the server does NOT outlive it, this silently
-// loses the in-flight extraction the moment the terminal returns to the
-// prompt. That's exactly why this mode is opt-in, not the default, until
-// confirmed live.
-async function runAgenticWrite(conversation: unknown, client: SessionClient, serverUrl: URL): Promise<void> {
-  const started = await startAgenticWrite(conversation)
-  if (!started) {
-    log("agentic write: /agentic/start failed or engine unavailable, skipping")
+// What this went through before landing here, for whoever reads this next:
+// (1) an earlier version spawned a detached curl process straight at
+// PluginInput.serverUrl -- confirmed live that was wrong, every path on
+// that URL 404s including the bare root. (2) an earlier version passed
+// `agent: "ontomem-extract"`, a custom restricted subagent meant to be
+// registered via the `config` hook -- confirmed live (by tracing the actual
+// source) that a plugin's `config` hook return value is unconditionally
+// discarded by this fork, so that agent never existed. (3) the version
+// right before this one directly awaited client.session.prompt() inside
+// dispose() (same call startCallbackServer's /generate handler uses
+// successfully for short, single-shot calls) -- confirmed live via granular
+// step logging that this ALSO fails, and root-caused why: opencode's TUI
+// shutdown path (packages/opencode/src/cli/cmd/tui.ts) wraps the whole
+// dispose() call in `withTimeout(client.call("shutdown"), 5000)` then calls
+// `worker.terminate()` unconditionally after -- a hard 5-second ceiling no
+// multi-minute tool-calling loop can ever finish inside, no matter what
+// dispose() does. There is also no real listening HTTP server to fall back
+// to reaching from outside in that default launch mode (`external` is only
+// true if `--port`/`--hostname` was passed -- see tui.ts), which is also
+// why (1) failed: there was nothing listening on that URL to begin with.
+//
+// So this hands the whole extraction to scripts/run-agentic-extraction.ts,
+// spawned fully detached (same "spawn detached + unref, survive dispose
+// returning" shape as flushWriteInBackground below) -- it drives its own,
+// independent `opencode serve` instance, immune to this process's shutdown
+// timeout because it isn't this process.
+function spawnDetachedAgenticExtraction(
+  conversation: unknown,
+  directory: string,
+  modelOverride?: { providerID: string; modelID: string },
+): void {
+  // Deliberately NOT process.execPath here. Confirmed live: the real
+  // installed opencode CLI (`~/.nvm/.../bin/opencode`, the actual binary the
+  // user runs) launches under Node, not Bun -- so process.execPath inside a
+  // running plugin can resolve to a `node` binary. run-agentic-extraction.ts
+  // uses Bun-only APIs (Bun.which) and raw TypeScript, which a bare `node
+  // <script>.ts` invocation fails on almost immediately -- and with
+  // stdio: "ignore" that failure was completely silent (confirmed live: the
+  // spawned process left zero log output and never even reached its first
+  // log() call). This plugin file itself only runs at all because SOMETHING
+  // in the opencode process is a real Bun runtime (Bun.serve/Bun.which both
+  // work here, elsewhere in this file) -- so resolve `bun` explicitly via
+  // PATH instead of trusting how the parent process itself was launched.
+  const bunBin = Bun.which("bun")
+  if (!bunBin) {
+    log("dispose: 'bun' not found on PATH, cannot spawn detached agentic extraction -- skipping")
     return
   }
-
-  const session = await client.session.create({ body: { title: "ontomem (internal, extraction)" } }).catch(() => null)
-  if (!session?.data) {
-    log("agentic write: failed to create dedicated extraction session")
-    return
-  }
-  agenticSessionByOpencodeSession.set(session.data.id, started.session_id)
-
-  const tmpFile = join(tmpdir(), `ontomem-agentic-${Date.now()}-${Math.random().toString(36).slice(2)}.json`)
+  const payloadFile = join(tmpdir(), `ontomem-agentic-${Date.now()}-${Math.random().toString(36).slice(2)}.json`)
   writeFileSync(
-    tmpFile,
-    JSON.stringify({
-      agent: AGENTIC_EXTRACTION_AGENT,
-      parts: [{ type: "text", text: started.prompt_text }],
-    }),
+    payloadFile,
+    JSON.stringify({ conversation, directory, modelOverride, serviceUrl: SERVICE_URL, bootstrapLog: BOOTSTRAP_LOG }),
   )
-  const url = new URL(`/session/${session.data.id}/message`, serverUrl).toString()
-  const cmd =
-    `if curl -fsS --max-time 1800 -X POST '${url}' ` +
-    `-H 'Content-Type: application/json' --data-binary @'${tmpFile}' -o /dev/null; then ` +
-    `rm -f '${tmpFile}'; else ` +
-    `echo "$(date -u +%FT%TZ) agentic extraction request failed, payload kept at ${tmpFile}" >> '${WRITE_FAILURE_LOG}'; fi`
-  const child = spawn("sh", ["-c", cmd], { detached: true, stdio: "ignore" })
+  log(`dispose: spawning detached agentic extraction via ${bunBin} (payload ${payloadFile})`)
+  const child = spawn(bunBin, [AGENTIC_EXTRACTION_SCRIPT, payloadFile], {
+    detached: true,
+    stdio: "ignore",
+  })
+  // Without this, a spawn-level failure (e.g. bunBin resolved but somehow
+  // unusable) throws an unhandled 'error' event asynchronously, after
+  // dispose() has already returned -- invisible, same failure mode as the
+  // process.execPath bug above. Cheap insurance against the next version of
+  // that same class of bug.
+  child.on("error", (err) => log(`dispose: detached agentic extraction spawn failed: ${errorMessage(err)}`))
   child.unref()
 }
 
-export const OntomemPlugin: Plugin = async ({ client, serverUrl }, options) => {
+export const OntomemPlugin: Plugin = async ({ client, directory }, options) => {
   // The internal session used only for ontomem's own generation calls (see
   // startCallbackServer) -- never the user's visible coding session. Created
   // lazily on first use, then reused for the process lifetime.
   let internalSessionId: string | null = null
   const modelOverride = options?.model as { providerID: string; modelID: string } | undefined
-  const agenticExtractionEnabled = options?.agenticExtraction === true
+  // Default as of this release -- sequential extraction (see
+  // spawnDetachedAgenticExtraction's comment) has now been verified
+  // end-to-end live multiple times: per-call commits land immediately,
+  // survive the detached server's own lifetime, tool scoping holds, and
+  // cross-session recall works. Still escapable via {"agenticExtraction":
+  // false} if it ever needs to be turned off for a specific install.
+  const agenticExtractionEnabled = options?.agenticExtraction !== false
 
   // A tiny localhost-only proxy the engine calls back into for every
   // extraction/merge/supersede LLM call (see engine/src/ontomem/inference.py's
@@ -416,46 +452,157 @@ export const OntomemPlugin: Plugin = async ({ client, serverUrl }, options) => {
   const pendingContext = new Map<string, string>()
   const touchedSessions = new Set<string>()
 
+  // Registered ONLY inside the dedicated extraction server (see
+  // spawnDetachedAgenticExtraction/scripts/run-agentic-extraction.ts) --
+  // DETACHED_EXTRACTION_SESSION_ID is read once from process.env at module
+  // load, so this is a per-process decision, not per-session, which lines
+  // up exactly with reality: a normal opencode launch never has this env
+  // var set and never needs these tools, while the dedicated server always
+  // has it set and never handles any OTHER kind of session. Confirmed live
+  // that just BLOCKING execution (tool.execute.before below) wasn't enough
+  // on its own -- the model could still see ontomem_add_relationship in a
+  // completely normal chat, try to call it, and get a visible rejection
+  // (red tool-call line in the TUI) for no reason a real user should ever
+  // see. Not registering the tool at all in a normal session's process
+  // removes it from the model's tool list entirely, not just from what it's
+  // allowed to execute. tool.execute.before stays as defense-in-depth.
+  // Explicit annotation, not inferred: the two ternary branches below have
+  // different shapes ({} vs three named tools), and TypeScript infers a
+  // union of object types across them rather than an index signature --
+  // which then fails to satisfy Hooks["tool"]'s `{[key: string]: ToolDef}`
+  // because the union's "missing" keys type as `undefined`, not "absent".
+  const agenticExtractionTools: Record<string, ReturnType<typeof tool>> =
+    DETACHED_EXTRACTION_SESSION_ID !== null
+      ? {
+          // Schemas mirror engine/src/ontomem/extraction_schema.py's
+          // AGENTIC_TOOLS exactly, which is the wire-format source of truth.
+          ontomem_add_entity: tool({
+            description:
+              "INTERNAL USE ONLY (ontomem sequential graph extraction). Add ONE durable entity to the graph " +
+              "as soon as you identify it. Call once per entity, not in a batch. 'type' MUST be exactly one of: " +
+              NODE_KINDS.join(", ") + ".",
+            args: {
+              text: tool.schema.string().describe("Canonical entity name, as specific as possible."),
+              type: tool.schema.enum(NODE_KINDS),
+              confidence: tool.schema.number().min(0).max(1),
+              properties: tool.schema
+                .record(tool.schema.string(), tool.schema.unknown())
+                .describe("Time-invariant facts only. Empty {} for most entities."),
+              aliases: tool.schema.array(tool.schema.string()),
+              candidate_merge_key: tool.schema
+                .string()
+                .nullable()
+                .describe("Null unless you identified a likely existing node match."),
+            },
+            execute: async (args) => {
+              const result = await applyAgenticToolCall(DETACHED_EXTRACTION_SESSION_ID, "add_entity", args)
+              return result?.result_text ?? "error: memory service unavailable"
+            },
+          }),
+
+          ontomem_add_relationship: tool({
+            description:
+              "INTERNAL USE ONLY (ontomem sequential graph extraction). Add ONE relationship to the graph as " +
+              "soon as you identify it. Both source and target must already exist -- either added earlier via " +
+              "ontomem_add_entity or already present in the existing graph context. Call once per relationship.",
+            args: {
+              source: tool.schema.string().describe("Canonical entity name, must already exist."),
+              relation: tool.schema.string().describe("UPPER_SNAKE_CASE, verb-first, max 4 words."),
+              target: tool.schema.string().describe("Canonical entity name, must already exist."),
+              confidence: tool.schema.number().min(0).max(1),
+              stability: tool.schema.enum(STABILITIES),
+              ttl_days: tool.schema.number().int().nullable(),
+              cardinality: tool.schema
+                .enum(CARDINALITIES)
+                .describe(
+                  "one_to_one: only ONE target can be true for this relation from this source at a time, even if " +
+                    "it changes over time (current manager, current partner, current employer) -- lets the system " +
+                    "replace the old value non-destructively later. one_to_many: multiple simultaneous targets are " +
+                    "normal and expected (friends, hobbies, places visited).",
+                ),
+              evidence: tool.schema.string().describe("Short verbatim phrase from the text."),
+              snippet: tool.schema.string().describe("2-6 sentence verbatim excerpt, meaningful read in isolation."),
+              properties: tool.schema
+                .record(tool.schema.string(), tool.schema.unknown())
+                .describe("Quantifiers/qualifiers about this relationship -- duration, frequency, degree."),
+            },
+            execute: async (args) => {
+              const result = await applyAgenticToolCall(DETACHED_EXTRACTION_SESSION_ID, "add_relationship", args)
+              return result?.result_text ?? "error: memory service unavailable"
+            },
+          }),
+
+          ontomem_finish_extraction: tool({
+            description:
+              "INTERNAL USE ONLY (ontomem sequential graph extraction). Call exactly once, after every durable " +
+              "entity and relationship in the conversation has already been added, to close out the episode.",
+            args: {
+              summary: tool.schema.string().describe("1-2 sentence specific summary of the conversation."),
+              importance: tool.schema.number().min(0).max(1),
+              tags: tool.schema.array(tool.schema.string()).describe("2-5 snake_case domain labels."),
+            },
+            execute: async (args) => {
+              const result = await applyAgenticToolCall(DETACHED_EXTRACTION_SESSION_ID, "finish_extraction", args)
+              return result?.result_text ?? "error: memory service unavailable"
+            },
+          }),
+        }
+      : {}
+
   return {
-    // Injects the ontomem_* tools' dedicated subagent (see AGENTIC_TOOL_NAMES
-    // above) and, best-effort, denies those same tool names in the user's
-    // own default agents -- belt-and-suspenders alongside each tool's own
-    // sessionID check (below), since there's no fully airtight native way
-    // to scope a plugin-registered tool's visibility to one session. The
-    // agent's tools/permission restriction is the primary control; its
-    // exact unlisted-key semantics aren't independently verified yet (see
-    // this file's header and the plan this shipped from) -- the sessionID
-    // check is what actually enforces correctness regardless.
-    config: async (input: Config) => {
-      try {
-        const denyOntomemTools: Record<string, boolean> = {}
-        for (const name of AGENTIC_TOOL_NAMES) denyOntomemTools[name] = false
-        const agent: NonNullable<Config["agent"]> = { ...input.agent }
-        for (const name of ["build", "plan", "general", "explore"] as const) {
-          agent[name] = { ...agent[name], tools: { ...agent[name]?.tools, ...denyOntomemTools } }
-        }
-        agent[AGENTIC_EXTRACTION_AGENT] = {
-          mode: "subagent",
-          description: "Internal use only -- ontomem's sequential graph-extraction agent, invoked by the plugin itself. Never select this manually.",
-          tools: {
-            // Known built-in tool names from reading opencode's own
-            // built-in agent definitions -- not guaranteed exhaustive, see
-            // header comment. add_entity/add_relationship/finish_extraction
-            // are the only tools this agent is meant to use.
-            bash: false, edit: false, write: false, patch: false,
-            webfetch: false, websearch: false, read: false, grep: false,
-            glob: false, list: false, todowrite: false, todoread: false,
-            ...Object.fromEntries(AGENTIC_TOOL_NAMES.map((name) => [name, true])),
-          },
-          permission: { edit: "deny", bash: "deny", webfetch: "deny", external_directory: "deny" },
-        }
-        input.agent = agent
-      } catch (err) {
-        log(`config hook failed to register ${AGENTIC_EXTRACTION_AGENT} agent: ${errorMessage(err)}`)
+    // Defense-in-depth backstop, bidirectional: the PRIMARY scoping is now
+    // agenticExtractionTools above simply not registering the ontomem_*
+    // tools at all outside the dedicated extraction server, so a normal
+    // chat session's model never even sees them in its tool list. This hook
+    // catches the two cases that leaves: the (should-be-impossible) case of
+    // an ontomem_* tool call reaching a process where it isn't registered,
+    // and the extraction session calling anything OTHER than an ontomem_*
+    // tool -- verified (by reading packages/opencode/src/session/tools.ts's
+    // real execution path, not just types) to run for every plugin-
+    // registered tool call, with no Effect.ignore wrapping it, so a thrown
+    // error here genuinely aborts execution before the tool's own execute()
+    // runs. Two earlier mechanisms were tried and confirmed NOT to work,
+    // for two different concrete reasons -- worth recording so this isn't
+    // re-attempted:
+    //   1. A custom restricted "ontomem-extract" agent injected via the
+    //      `config` hook. Confirmed by tracing the source: this fork
+    //      unconditionally discards a plugin's `config` hook return value
+    //      (`Effect.ignore` in packages/opencode/src/plugin/index.ts), and
+    //      the real agent permission registry only ever reads frozen
+    //      filesystem config -- so that agent never actually existed.
+    //   2. The `permission.ask` hook, overriding the outcome of a
+    //      permission check. Confirmed by tracing the source: plugin-
+    //      registered tools (session/tools.ts's `registry.tools()` loop)
+    //      call `item.execute(args, ctx)` DIRECTLY, with no `ctx.ask(...)`
+    //      permission check at all -- unlike MCP tools, which do go through
+    //      one. permission.ask never had anything to intercept.
+    "tool.execute.before": async (input) => {
+      const isOntomemTool = (AGENTIC_TOOL_NAMES as readonly string[]).includes(input.tool)
+      const isExtractionSession = DETACHED_EXTRACTION_SESSION_ID !== null
+      if (isOntomemTool !== isExtractionSession) {
+        throw new Error(
+          isOntomemTool
+            ? "ontomem_* tools are only available during ontomem's own internal extraction session"
+            : "ontomem's internal extraction session can only use ontomem_* tools",
+        )
       }
     },
 
     "chat.message": async (input, output) => {
+      // Skip ontomem's own internal sessions entirely -- both the
+      // generation-callback session (startCallbackServer's /generate,
+      // internalSessionId) and, inside the dedicated detached extraction
+      // server, the one extraction session (DETACHED_EXTRACTION_SESSION_ID
+      // is set for the whole process there). Confirmed live: without this,
+      // the extraction prompt itself -- a ~130k-char internal instruction
+      // block, not anything a real user typed -- got sent through /read and
+      // cached as "last read," which the viewer's Graph Inspector surfaces
+      // as "what OpenAgent just injected." Same bug would also apply to the
+      // merge/disambiguate /generate calls on the parent process. This also
+      // stops these sessions from ever landing in touchedSessions, which
+      // would otherwise make dispose() try to run extraction AGAIN on the
+      // extraction/merge session's own transcript.
+      if (input.sessionID === internalSessionId || DETACHED_EXTRACTION_SESSION_ID !== null) return
       touchedSessions.add(input.sessionID)
       try {
         // Do NOT await ensureEngineRunning() here -- opencode awaits this
@@ -504,92 +651,11 @@ export const OntomemPlugin: Plugin = async ({ client, serverUrl }, options) => {
         },
       }),
 
-      // The three tools below exist ONLY for ontomem's own sequential
-      // extraction (AGENTIC_TOOL_NAMES / runAgenticWrite above) -- schemas
-      // mirror engine/src/ontomem/extraction_schema.py's AGENTIC_TOOLS
-      // exactly, which is the wire-format source of truth. Each execute()
-      // checks context.sessionID against the dedicated extraction session
-      // runAgenticWrite creates and refuses to act for any other session --
-      // the primary scoping is the config hook's agent-level tool
-      // restriction above, this is the defense-in-depth backstop (see this
-      // file's header comment on why both layers exist).
-      ontomem_add_entity: tool({
-        description:
-          "INTERNAL USE ONLY (ontomem sequential graph extraction). Add ONE durable entity to the graph " +
-          "as soon as you identify it. Call once per entity, not in a batch. 'type' MUST be exactly one of: " +
-          NODE_KINDS.join(", ") + ".",
-        args: {
-          text: tool.schema.string().describe("Canonical entity name, as specific as possible."),
-          type: tool.schema.enum(NODE_KINDS),
-          confidence: tool.schema.number().min(0).max(1),
-          properties: tool.schema
-            .record(tool.schema.string(), tool.schema.unknown())
-            .describe("Time-invariant facts only. Empty {} for most entities."),
-          aliases: tool.schema.array(tool.schema.string()),
-          candidate_merge_key: tool.schema.string().nullable().describe("Null unless you identified a likely existing node match."),
-        },
-        execute: async (args, context) => {
-          const sessionId = agenticSessionByOpencodeSession.get(context.sessionID)
-          if (!sessionId) return "error: this tool is only available during ontomem's internal extraction session"
-          const result = await applyAgenticToolCall(sessionId, "add_entity", args)
-          return result?.result_text ?? "error: memory service unavailable"
-        },
-      }),
-
-      ontomem_add_relationship: tool({
-        description:
-          "INTERNAL USE ONLY (ontomem sequential graph extraction). Add ONE relationship to the graph as " +
-          "soon as you identify it. Both source and target must already exist -- either added earlier via " +
-          "ontomem_add_entity or already present in the existing graph context. Call once per relationship.",
-        args: {
-          source: tool.schema.string().describe("Canonical entity name, must already exist."),
-          relation: tool.schema.string().describe("UPPER_SNAKE_CASE, verb-first, max 4 words."),
-          target: tool.schema.string().describe("Canonical entity name, must already exist."),
-          confidence: tool.schema.number().min(0).max(1),
-          stability: tool.schema.enum(STABILITIES),
-          ttl_days: tool.schema.number().int().nullable(),
-          cardinality: tool.schema
-            .enum(CARDINALITIES)
-            .describe(
-              "one_to_one: only ONE target can be true for this relation from this source at a time, even if " +
-                "it changes over time (current manager, current partner, current employer) -- lets the system " +
-                "replace the old value non-destructively later. one_to_many: multiple simultaneous targets are " +
-                "normal and expected (friends, hobbies, places visited).",
-            ),
-          evidence: tool.schema.string().describe("Short verbatim phrase from the text."),
-          snippet: tool.schema.string().describe("2-6 sentence verbatim excerpt, meaningful read in isolation."),
-          properties: tool.schema
-            .record(tool.schema.string(), tool.schema.unknown())
-            .describe("Quantifiers/qualifiers about this relationship -- duration, frequency, degree."),
-        },
-        execute: async (args, context) => {
-          const sessionId = agenticSessionByOpencodeSession.get(context.sessionID)
-          if (!sessionId) return "error: this tool is only available during ontomem's internal extraction session"
-          const result = await applyAgenticToolCall(sessionId, "add_relationship", args)
-          return result?.result_text ?? "error: memory service unavailable"
-        },
-      }),
-
-      ontomem_finish_extraction: tool({
-        description:
-          "INTERNAL USE ONLY (ontomem sequential graph extraction). Call exactly once, after every durable " +
-          "entity and relationship in the conversation has already been added, to close out the episode.",
-        args: {
-          summary: tool.schema.string().describe("1-2 sentence specific summary of the conversation."),
-          importance: tool.schema.number().min(0).max(1),
-          tags: tool.schema.array(tool.schema.string()).describe("2-5 snake_case domain labels."),
-        },
-        execute: async (args, context) => {
-          const sessionId = agenticSessionByOpencodeSession.get(context.sessionID)
-          if (!sessionId) return "error: this tool is only available during ontomem's internal extraction session"
-          const result = await applyAgenticToolCall(sessionId, "finish_extraction", args)
-          agenticSessionByOpencodeSession.delete(context.sessionID)
-          return result?.result_text ?? "error: memory service unavailable"
-        },
-      }),
+      ...agenticExtractionTools,
     },
 
     dispose: async () => {
+      log(`dispose: called, ${touchedSessions.size} touched session(s)`)
       const written = readWrittenSessions()
       for (const sessionID of touchedSessions) {
         const messages = await client.session.messages({ path: { id: sessionID } }).catch(() => null)
@@ -609,17 +675,16 @@ export const OntomemPlugin: Plugin = async ({ client, serverUrl }, options) => {
         // reaches the engine) still sees this session as handled.
         markSessionWritten(sessionID, conversation.length)
         if (agenticExtractionEnabled) {
-          // Awaited: /agentic/start itself is fast (no LLM call, just
-          // deterministic context assembly -- see runAgenticWrite's
-          // comment), it's only the actual multi-minute tool-calling loop
-          // that's handed off detached.
-          await runAgenticWrite(conversation, client, serverUrl).catch((err) =>
-            log(`agentic write failed to start: ${errorMessage(err)}`),
-          )
+          // Detached, not awaited -- see spawnDetachedAgenticExtraction's
+          // comment for why an in-process await can never survive opencode's
+          // own 5-second shutdown ceiling.
+          log(`dispose: dispatching agentic write for session ${sessionID} (${conversation.length} turns)`)
+          spawnDetachedAgenticExtraction(conversation, directory, modelOverride)
         } else {
           flushWriteInBackground(conversation)
         }
       }
+      log("dispose: loop finished, stopping callback server")
       callbackServer.stop()
     },
   }
