@@ -34,8 +34,24 @@ will remember.
 ## Requirements
 
 - [`uv`](https://docs.astral.sh/uv/getting-started/installation/) on `PATH`
-  (a single small binary; it provisions Python itself if needed). This is
-  the one prerequisite — everything else is automatic.
+  (a single small binary; it provisions Python itself if needed) — runs the
+  engine service.
+- `bun` on `PATH` — every write (extraction) is handed off to a detached
+  script that needs to run as Bun, regardless of how opencode itself was
+  installed (see below for why).
+- `opencode` itself on `PATH` — real generation always goes through an
+  actual opencode session (see "How 'no keys' works" above), so the write
+  script spins up its own dedicated `opencode serve` instance rather than
+  depending on the process that triggered it, which opencode's own shutdown
+  path can kill within 5 seconds. If you can run `opencode` to begin with,
+  this is already satisfied.
+
+If either `bun` or `opencode` isn't found, memory writes fail loudly (in
+`~/.local/share/ontomem/bootstrap.log`) rather than silently producing
+nothing — but nothing gets remembered from that conversation. Both are
+normally already true for anyone who has opencode installed and working;
+these aren't extra installs so much as things worth knowing if something
+seems to not be sticking.
 
 Local embeddings work on **Apple Silicon, Intel Mac, Linux, and Windows**.
 Intel Mac needs a specific pin to get there: `onnxruntime` (fastembed's own
@@ -128,6 +144,13 @@ somewhere that isn't racing that timeout. The three extraction tools
 are only ever registered inside that dedicated process — they don't exist in
 your normal coding sessions' tool list at all, not just blocked from
 executing there.
+
+Setting `agenticExtraction: false` doesn't revert to some simpler mechanism
+— the single-shot extraction call needs the exact same detached dedicated
+server (a prior version tried a plain background `curl`, which turned out
+to never complete real generation for the same "process dies too soon"
+reason). Both modes go through `scripts/run-detached-write.ts`; only what
+happens once the dedicated server is ready differs.
 
 ```jsonc
 { "plugin": [["pegasus-opencode", { "agenticExtraction": false }]] }

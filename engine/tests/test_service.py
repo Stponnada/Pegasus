@@ -280,6 +280,32 @@ def test_host_callback_url_rejects_agentic_extraction(tmp_path, monkeypatch):
         make_engine_from_env(str(tmp_path))
 
 
+def test_refresh_callback_route_updates_the_engine_wired_by_make_engine_from_env(tmp_path, monkeypatch):
+    """Exercises the real wiring end to end (not a fake generator, unlike
+    test_engine.py's unit test): make_engine_from_env's own
+    HostCallbackGenerator instance, reached through dispatch()'s
+    /refresh_callback route exactly as the plugin calls it on every load."""
+    for key in ("GEMINI_API_KEYS", "GEMINI_API_KEY", "GEMINI_EMBED_API_KEYS", "OPENAI_BASE_URL"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("ONTOMEM_HOST_CALLBACK_URL", "http://127.0.0.1:54321")
+
+    engine = make_engine_from_env(str(tmp_path))
+    assert engine.generate_fn.__self__.base_url == "http://127.0.0.1:54321"
+
+    result = dispatch(engine, "/refresh_callback", {"url": "http://127.0.0.1:60000"})
+
+    assert result == {"ok": True}
+    assert engine.generate_fn.__self__.base_url == "http://127.0.0.1:60000"
+
+
+def test_refresh_callback_route_requires_url(tmp_path):
+    engine = Engine(tmp_path, embedder=HashingEmbedder())
+
+    with pytest.raises(ServiceError) as exc:
+        dispatch(engine, "/refresh_callback", {})
+    assert exc.value.status == 400
+
+
 def test_falls_back_to_local_embedder_when_fastembed_available(tmp_path, monkeypatch):
     """Same 'no explicit embedding backend configured' branch as the
     HashingEmbedder fallback test above, but with fastembed importable --

@@ -141,6 +141,7 @@ class Engine:
         extraction_prompt_template: str | None = None,
         user_only_extraction: bool = False,
         agentic_extraction: bool = False,
+        host_callback_generator=None,
     ) -> None:
         self.dir = Path(base_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
@@ -149,6 +150,13 @@ class Engine:
         self.model = model
         self.api_key = api_key
         self.generate_fn = generate_fn
+        # Kept as a reference to the actual HostCallbackGenerator instance
+        # (not just its bound .generate method, which is all generate_fn
+        # is) so refresh_callback_url() below can mutate its target URL in
+        # place. None for every other deployment mode (cluster/Gemini),
+        # where the base URL is a real, permanently-addressable inference
+        # server and never needs refreshing.
+        self._host_callback_generator = host_callback_generator
         # Only used by agentic extraction (chat_with_tools-shaped: takes a
         # growing messages list + tools, returns one assistant message dict).
         # Separate from generate_fn because the two have incompatible
@@ -180,6 +188,33 @@ class Engine:
         self.store = self._load_store()
         self.index = self._load_or_build_index()
         self.last_read: dict | None = None
+
+    def refresh_callback_url(self, url: str) -> None:
+        """Updates the live HostCallbackGenerator's target URL in place. A
+        no-op if this engine isn't using one (cluster/Gemini deployments).
+
+        Exists because this engine is intentionally long-lived -- it
+        survives opencode restarts and only self-exits after an idle
+        timeout (see service.py's idle watchdog) -- while the callback
+        target is NOT: every opencode launch's Bun.serve() callback server
+        binds a fresh random port, and the previous one dies the moment
+        that opencode process exits. Without this, once the opencode
+        session that originally spawned this engine exits, the engine keeps
+        calling back to a dead port forever -- confirmed live (curl to the
+        baked-in callback URL from a since-exited session returns
+        "connection refused") -- silently failing every subsequent
+        session's generation calls (extraction, merge/disambiguation,
+        supersede) with no visible error to the user. The plugin calls this
+        on every load, not just when it has to spawn a fresh engine, so a
+        reused long-lived engine always points at whichever opencode
+        process is currently alive. Known tradeoff, accepted for now: with
+        two opencode processes open simultaneously, whichever loads (or
+        reloads) most recently wins the engine's attention -- undesirable
+        for true concurrent multi-session use, but far better than the
+        prior guaranteed-broken state for the dominant single-session-at-a-
+        time usage pattern."""
+        if self._host_callback_generator is not None:
+            self._host_callback_generator.base_url = url
 
     # --- paths -----------------------------------------------------------------
 

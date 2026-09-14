@@ -58,8 +58,8 @@ const HEALTH_POLL_INTERVAL_MS = 2000
 // emitting it all at the end (which the notebook found times out on longer
 // conversations and produces worse graphs, regardless of model capability).
 // Default since 0.2.0 -- pass {"agenticExtraction": false} in the plugin's
-// config entry to opt back out (see spawnDetachedAgenticExtraction's
-// comment for the current mechanism and what it replaced).
+// config entry to opt back out (see spawnDetachedWrite's comment for the
+// current mechanism and what it replaced).
 const AGENTIC_TOOL_NAMES = ["ontomem_add_entity", "ontomem_add_relationship", "ontomem_finish_extraction"] as const
 const AGENTIC_CALL_TIMEOUT_MS = 30000
 
@@ -117,9 +117,9 @@ async function sleep(ms: number): Promise<void> {
 
 // Spawns the engine service pointed at the given callback URL, detached so
 // it survives this opencode process (same "spawn detached, unref, let it
-// outlive us" shape flushWriteInBackground already uses below), then polls
-// /health until it answers or we give up. Assumes `uv` is already confirmed
-// present (see ensureEngineRunning) and the source is already synced.
+// outlive us" shape spawnDetachedWrite uses below), then polls /health
+// until it answers or we give up. Assumes `uv` is already confirmed present
+// (see ensureEngineRunning) and the source is already synced.
 async function startEngineService(callbackUrl: string): Promise<boolean> {
   log(`running "uv sync --extra local" in ${ENGINE_RUNTIME_DIR} (first run downloads the local embedding model, can take a few minutes)`)
   try {
@@ -197,7 +197,21 @@ let bootstrapPromise: Promise<boolean> | null = null
 function ensureEngineRunning(callbackUrl: string): Promise<boolean> {
   if (bootstrapPromise) return bootstrapPromise
   bootstrapPromise = (async () => {
-    if (await isEngineHealthy()) return true
+    if (await isEngineHealthy()) {
+      // The engine is long-lived and outlives individual opencode
+      // processes (see the README's "Does the engine run forever?"),
+      // while callbackUrl is THIS process's own ephemeral Bun.serve()
+      // port -- a fresh random one every launch. Without refreshing here,
+      // a reused engine keeps calling back to whichever port happened to
+      // be listening when it was first spawned, possibly sessions ago and
+      // long since dead. Confirmed live: curl to a stale baked-in callback
+      // URL from an exited session returns connection refused, silently
+      // failing every subsequent generation call (extraction, merge/
+      // disambiguation, supersede) with no visible error. Cheap and
+      // idempotent, so it's called every time, not just on a fresh spawn.
+      await refreshCallbackUrl(callbackUrl)
+      return true
+    }
 
     const uvPath = Bun.which("uv")
     if (!uvPath) {
@@ -215,7 +229,12 @@ function ensureEngineRunning(callbackUrl: string): Promise<boolean> {
       return false
     }
 
-    return startEngineService(callbackUrl)
+    const started = await startEngineService(callbackUrl)
+    // Also redundant for a fresh spawn (callbackUrl was already passed as
+    // ONTOMEM_HOST_CALLBACK_URL at startup) -- kept for one code path
+    // instead of special-casing "did we just spawn it" here.
+    if (started) await refreshCallbackUrl(callbackUrl)
+    return started
   })()
   // A failed attempt should be retryable on the NEXT hook call (e.g. uv got
   // installed after the first failure), not permanently cached as false.
@@ -223,6 +242,10 @@ function ensureEngineRunning(callbackUrl: string): Promise<boolean> {
     if (!ok) bootstrapPromise = null
   })
   return bootstrapPromise
+}
+
+async function refreshCallbackUrl(callbackUrl: string): Promise<void> {
+  await callService("/refresh_callback", { url: callbackUrl })
 }
 
 async function callService<T>(path: string, body: unknown, timeoutMs = READ_TIMEOUT_MS): Promise<T | null> {
@@ -280,13 +303,14 @@ function markSessionWritten(sessionID: string, turnCount: number): void {
   }
 }
 
-// Set only inside the dedicated, single-purpose `opencode serve` process
-// spawned by scripts/run-agentic-extraction.ts (see that file's header for
-// why the extraction has to run there, detached, instead of in-process).
-// The extraction session is the ONLY session that will ever exist on that
-// process, so its presence is treated as "this whole process is scoped to
-// the one extraction session" -- no per-opencode-session bookkeeping needed;
-// every ontomem_* tool call arriving anywhere in this process applies to it.
+// Set only inside a dedicated, single-purpose `opencode serve` process
+// spawned by scripts/run-detached-write.ts in agentic mode (see that file's
+// header for why the write has to run there, detached, instead of in-
+// process). The extraction session is the ONLY session that will ever
+// exist on that process, so its presence is treated as "this whole process
+// is scoped to the one extraction session" -- no per-opencode-session
+// bookkeeping needed; every ontomem_* tool call arriving anywhere in this
+// process applies to it.
 const DETACHED_EXTRACTION_SESSION_ID = process.env.ONTOMEM_DETACHED_EXTRACTION_SESSION_ID ?? null
 
 async function applyAgenticToolCall(
@@ -301,51 +325,44 @@ async function applyAgenticToolCall(
   )
 }
 
-const WRITE_FAILURE_LOG = join(tmpdir(), "ontomem-write-failures.log")
+const DETACHED_WRITE_SCRIPT = join(PLUGIN_DIR, "..", "scripts", "run-detached-write.ts")
 
-function flushWriteInBackground(conversation: unknown): void {
-  const tmpFile = join(tmpdir(), `ontomem-write-${Date.now()}-${Math.random().toString(36).slice(2)}.json`)
-  writeFileSync(tmpFile, JSON.stringify({ conversation }))
-  const cmd =
-    `if curl -fsS --retry 6 --retry-delay 15 --retry-all-errors -X POST '${SERVICE_URL}/write' ` +
-    `-H 'Content-Type: application/json' --data-binary @'${tmpFile}' -o /dev/null; then ` +
-    `rm -f '${tmpFile}'; else ` +
-    `echo "$(date -u +%FT%TZ) write failed after retries, payload kept at ${tmpFile}" >> '${WRITE_FAILURE_LOG}'; fi`
-  const child = spawn("sh", ["-c", cmd], { detached: true, stdio: "ignore" })
-  child.unref()
-}
-
-const AGENTIC_EXTRACTION_SCRIPT = join(PLUGIN_DIR, "..", "scripts", "run-agentic-extraction.ts")
-
-// Sequential-extraction alternative to flushWriteInBackground.
+// Both write modes (plain single-shot and sequential/agentic) end up here.
+// What this went through before landing on ONE shared path for both, for
+// whoever reads this next:
+//   1. Plain mode used to be a bare detached curl straight to the engine's
+//      /write, relying on THIS process's own callback server for
+//      generation. Confirmed live (by direct code-path tracing, not a
+//      guess): dispose() stops that callback server essentially
+//      immediately after dispatching the detached curl, before the
+//      request could plausibly reach the engine and trigger a callback --
+//      so the plain path likely never completed real generation, ever.
+//   2. Agentic mode used to directly await client.session.prompt() inside
+//      dispose() -- confirmed live via granular step logging that this
+//      fails, root-caused to opencode's TUI shutdown path
+//      (packages/opencode/src/cli/cmd/tui.ts) wrapping the whole dispose()
+//      call in `withTimeout(client.call("shutdown"), 5000)` then calling
+//      `worker.terminate()` unconditionally after -- a hard 5-second
+//      ceiling neither a multi-minute tool-calling loop nor even a single
+//      slow generation call can reliably finish inside.
+//   3. An earlier attempt at (2) spawned a detached curl straight at
+//      PluginInput.serverUrl -- confirmed live every path there 404s; the
+//      default (no --port) TUI launch has no real listening HTTP server to
+//      begin with (see tui.ts's `external` flag).
+//   4. An even earlier attempt used a custom "ontomem-extract" agent
+//      registered via the `config` hook -- confirmed by tracing the source
+//      that this fork unconditionally discards a plugin's `config` hook
+//      return value, so that agent never existed.
 //
-// What this went through before landing here, for whoever reads this next:
-// (1) an earlier version spawned a detached curl process straight at
-// PluginInput.serverUrl -- confirmed live that was wrong, every path on
-// that URL 404s including the bare root. (2) an earlier version passed
-// `agent: "ontomem-extract"`, a custom restricted subagent meant to be
-// registered via the `config` hook -- confirmed live (by tracing the actual
-// source) that a plugin's `config` hook return value is unconditionally
-// discarded by this fork, so that agent never existed. (3) the version
-// right before this one directly awaited client.session.prompt() inside
-// dispose() (same call startCallbackServer's /generate handler uses
-// successfully for short, single-shot calls) -- confirmed live via granular
-// step logging that this ALSO fails, and root-caused why: opencode's TUI
-// shutdown path (packages/opencode/src/cli/cmd/tui.ts) wraps the whole
-// dispose() call in `withTimeout(client.call("shutdown"), 5000)` then calls
-// `worker.terminate()` unconditionally after -- a hard 5-second ceiling no
-// multi-minute tool-calling loop can ever finish inside, no matter what
-// dispose() does. There is also no real listening HTTP server to fall back
-// to reaching from outside in that default launch mode (`external` is only
-// true if `--port`/`--hostname` was passed -- see tui.ts), which is also
-// why (1) failed: there was nothing listening on that URL to begin with.
-//
-// So this hands the whole extraction to scripts/run-agentic-extraction.ts,
-// spawned fully detached (same "spawn detached + unref, survive dispose
-// returning" shape as flushWriteInBackground below) -- it drives its own,
-// independent `opencode serve` instance, immune to this process's shutdown
-// timeout because it isn't this process.
-function spawnDetachedAgenticExtraction(
+// Both failure modes share one root cause: real generation work routinely
+// takes longer than the 5-second window opencode gives dispose() before
+// force-killing the process. scripts/run-detached-write.ts is the fix for
+// both -- a fully detached process (survives dispose() returning and the
+// parent's death) that drives its own independent `opencode serve`
+// instance AND its own callback proxy for generation, immune to the
+// parent's shutdown timeout because it isn't the parent.
+function spawnDetachedWrite(
+  mode: "agentic" | "plain",
   conversation: unknown,
   directory: string,
   modelOverride?: { providerID: string; modelID: string },
@@ -353,7 +370,7 @@ function spawnDetachedAgenticExtraction(
   // Deliberately NOT process.execPath here. Confirmed live: the real
   // installed opencode CLI (`~/.nvm/.../bin/opencode`, the actual binary the
   // user runs) launches under Node, not Bun -- so process.execPath inside a
-  // running plugin can resolve to a `node` binary. run-agentic-extraction.ts
+  // running plugin can resolve to a `node` binary. run-detached-write.ts
   // uses Bun-only APIs (Bun.which) and raw TypeScript, which a bare `node
   // <script>.ts` invocation fails on almost immediately -- and with
   // stdio: "ignore" that failure was completely silent (confirmed live: the
@@ -364,16 +381,16 @@ function spawnDetachedAgenticExtraction(
   // PATH instead of trusting how the parent process itself was launched.
   const bunBin = Bun.which("bun")
   if (!bunBin) {
-    log("dispose: 'bun' not found on PATH, cannot spawn detached agentic extraction -- skipping")
+    log(`dispose: 'bun' not found on PATH, cannot spawn detached ${mode} write -- skipping`)
     return
   }
-  const payloadFile = join(tmpdir(), `ontomem-agentic-${Date.now()}-${Math.random().toString(36).slice(2)}.json`)
+  const payloadFile = join(tmpdir(), `ontomem-write-${Date.now()}-${Math.random().toString(36).slice(2)}.json`)
   writeFileSync(
     payloadFile,
-    JSON.stringify({ conversation, directory, modelOverride, serviceUrl: SERVICE_URL, bootstrapLog: BOOTSTRAP_LOG }),
+    JSON.stringify({ mode, conversation, directory, modelOverride, serviceUrl: SERVICE_URL, bootstrapLog: BOOTSTRAP_LOG }),
   )
-  log(`dispose: spawning detached agentic extraction via ${bunBin} (payload ${payloadFile})`)
-  const child = spawn(bunBin, [AGENTIC_EXTRACTION_SCRIPT, payloadFile], {
+  log(`dispose: spawning detached ${mode} write via ${bunBin} (payload ${payloadFile})`)
+  const child = spawn(bunBin, [DETACHED_WRITE_SCRIPT, payloadFile], {
     detached: true,
     stdio: "ignore",
   })
@@ -382,7 +399,7 @@ function spawnDetachedAgenticExtraction(
   // dispose() has already returned -- invisible, same failure mode as the
   // process.execPath bug above. Cheap insurance against the next version of
   // that same class of bug.
-  child.on("error", (err) => log(`dispose: detached agentic extraction spawn failed: ${errorMessage(err)}`))
+  child.on("error", (err) => log(`dispose: detached ${mode} write spawn failed: ${errorMessage(err)}`))
   child.unref()
 }
 
@@ -393,8 +410,8 @@ export const OntomemPlugin: Plugin = async ({ client, directory }, options) => {
   let internalSessionId: string | null = null
   const modelOverride = options?.model as { providerID: string; modelID: string } | undefined
   // Default as of this release -- sequential extraction (see
-  // spawnDetachedAgenticExtraction's comment) has now been verified
-  // end-to-end live multiple times: per-call commits land immediately,
+  // spawnDetachedWrite's comment) has now been verified end-to-end live
+  // multiple times: per-call commits land immediately,
   // survive the detached server's own lifetime, tool scoping holds, and
   // cross-session recall works. Still escapable via {"agenticExtraction":
   // false} if it ever needs to be turned off for a specific install.
@@ -453,7 +470,7 @@ export const OntomemPlugin: Plugin = async ({ client, directory }, options) => {
   const touchedSessions = new Set<string>()
 
   // Registered ONLY inside the dedicated extraction server (see
-  // spawnDetachedAgenticExtraction/scripts/run-agentic-extraction.ts) --
+  // spawnDetachedWrite/scripts/run-detached-write.ts, agentic mode) --
   // DETACHED_EXTRACTION_SESSION_ID is read once from process.env at module
   // load, so this is a per-process decision, not per-session, which lines
   // up exactly with reality: a normal opencode launch never has this env
@@ -668,21 +685,18 @@ export const OntomemPlugin: Plugin = async ({ client, directory }, options) => {
         // it just to look, then exited again) -- skip the redundant
         // extraction pass entirely rather than re-writing unchanged content.
         if ((written[sessionID] ?? 0) >= conversation.length) continue
-        // Mark BEFORE dispatch, not after: flushWriteInBackground hands off
-        // to a detached process we don't await, so there's no reliable
-        // "write actually finished" signal to hook this on. Marking here
-        // means a second dispose moments later (before the first write even
+        // Mark BEFORE dispatch, not after: spawnDetachedWrite hands off to
+        // a detached process we don't await, so there's no reliable "write
+        // actually finished" signal to hook this on. Marking here means a
+        // second dispose moments later (before the first write even
         // reaches the engine) still sees this session as handled.
         markSessionWritten(sessionID, conversation.length)
-        if (agenticExtractionEnabled) {
-          // Detached, not awaited -- see spawnDetachedAgenticExtraction's
-          // comment for why an in-process await can never survive opencode's
-          // own 5-second shutdown ceiling.
-          log(`dispose: dispatching agentic write for session ${sessionID} (${conversation.length} turns)`)
-          spawnDetachedAgenticExtraction(conversation, directory, modelOverride)
-        } else {
-          flushWriteInBackground(conversation)
-        }
+        // Detached, not awaited, for either mode -- see spawnDetachedWrite's
+        // comment for why an in-process await/curl can never survive
+        // opencode's own 5-second shutdown ceiling.
+        const mode = agenticExtractionEnabled ? "agentic" : "plain"
+        log(`dispose: dispatching ${mode} write for session ${sessionID} (${conversation.length} turns)`)
+        spawnDetachedWrite(mode, conversation, directory, modelOverride)
       }
       log("dispose: loop finished, stopping callback server")
       callbackServer.stop()

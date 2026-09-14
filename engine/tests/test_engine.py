@@ -470,3 +470,27 @@ def test_decay_force_bypasses_the_gate(tmp_path):
 
     assert "skipped" not in stats
     assert stats["edges_decayed"] == 1
+
+
+def test_refresh_callback_url_is_noop_without_host_callback_generator(tmp_path):
+    eng = _engine(tmp_path, _bill_extraction())
+    eng.refresh_callback_url("http://127.0.0.1:9999")  # must not raise
+
+
+def test_refresh_callback_url_mutates_the_live_generator(tmp_path):
+    class _FakeHostCallbackGenerator:
+        def __init__(self, base_url):
+            self.base_url = base_url
+
+    generator = _FakeHostCallbackGenerator("http://127.0.0.1:1111")
+    eng = Engine(
+        tmp_path,
+        embedder=HashingEmbedder(),
+        extract_fn=lambda convo, ctx: _bill_extraction(),
+        disambiguate_fn=lambda e, r, s, c: DisambiguationDecision(e.key, NEW, None, 0.0),
+        host_callback_generator=generator,
+    )
+
+    eng.refresh_callback_url("http://127.0.0.1:2222")
+
+    assert generator.base_url == "http://127.0.0.1:2222"

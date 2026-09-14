@@ -96,6 +96,12 @@ def dispatch(engine: Engine, path: str, payload: dict) -> dict:
         if not isinstance(arguments, dict):
             raise ServiceError(400, "'arguments' (dict) is required")
         return engine.apply_agentic_tool_call(session_id, tool_name, arguments)
+    if path == "/refresh_callback":
+        url = payload.get("url")
+        if not isinstance(url, str) or not url:
+            raise ServiceError(400, "'url' (str) is required")
+        engine.refresh_callback_url(url)
+        return {"ok": True}
     if path == "/decay":
         return engine.decay()
     if path == "/health":
@@ -222,6 +228,11 @@ def make_engine_from_env(base_dir: str | None = None) -> Engine:
     # are two different deployment stories (self-hosted backend vs. riding
     # on the host's own model access), not something to combine.
     host_callback_url = os.environ.get("ONTOMEM_HOST_CALLBACK_URL")
+    # Kept as a reference (not just its bound .generate) so it can be handed
+    # to Engine for refresh_callback_url() to mutate later -- see that
+    # method's docstring for why this engine's callback target needs to be
+    # refreshable independent of this process's own startup-time env var.
+    host_callback_generator = None
     if host_callback_url:
         if agentic_extraction:
             raise RuntimeError(
@@ -229,12 +240,20 @@ def make_engine_from_env(base_dir: str | None = None) -> Engine:
                 "-- the agentic tool-calling loop needs chat_fn, which the host callback "
                 "contract (single prompt in, text out) does not provide"
             )
-        generate_fn = HostCallbackGenerator(
+        host_callback_generator = HostCallbackGenerator(
             host_callback_url,
-            timeout=float(os.environ.get("ONTOMEM_HOST_CALLBACK_TIMEOUT", "120")),
+            # 120s (the old default) is too short for a reasoning model's
+            # single-shot extraction call -- confirmed live, a 3-turn test
+            # conversation's plain-mode extraction took ~204s end to end,
+            # and agentic mode's first tool call separately measured at
+            # ~236s (see plugin/src/index.ts's default-flip comment). 300s
+            # covers both with margin; still overridable for longer
+            # conversations that need more.
+            timeout=float(os.environ.get("ONTOMEM_HOST_CALLBACK_TIMEOUT", "300")),
             audit_path=os.environ.get("ONTOMEM_LLM_AUDIT_PATH"),
             audit_content=os.environ.get("ONTOMEM_LLM_AUDIT_CONTENT") == "1",
-        ).generate
+        )
+        generate_fn = host_callback_generator.generate
     elif llm_base_url:
         audit_path = os.environ.get("ONTOMEM_LLM_AUDIT_PATH")
         # Opt-in: forces extraction through a tool-call JSON Schema instead of
@@ -310,6 +329,7 @@ def make_engine_from_env(base_dir: str | None = None) -> Engine:
         generate_fn=generate_fn, chat_fn=chat_fn, extraction_prompt_template=extraction_prompt_template,
         user_only_extraction=os.environ.get("ONTOMEM_USER_ONLY_EXTRACTION") == "1",
         agentic_extraction=agentic_extraction,
+        host_callback_generator=host_callback_generator,
     )
 
 
