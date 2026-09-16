@@ -1,4 +1,4 @@
-import type { Plugin } from "@opencode-ai/plugin"
+import type { Plugin, PluginInput } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
 import { execFile, spawn } from "node:child_process"
 import { mkdirSync, writeFileSync, cpSync, existsSync, readFileSync, rmSync } from "node:fs"
@@ -120,7 +120,7 @@ async function sleep(ms: number): Promise<void> {
 // outlive us" shape spawnDetachedWrite uses below), then polls /health
 // until it answers or we give up. Assumes `uv` is already confirmed present
 // (see ensureEngineRunning) and the source is already synced.
-async function startEngineService(callbackUrl: string): Promise<boolean> {
+async function startEngineService(callbackUrl: string, notify: Notify): Promise<boolean> {
   log(`running "uv sync --extra local" in ${ENGINE_RUNTIME_DIR} (first run downloads the local embedding model, can take a few minutes)`)
   try {
     await execFileAsync("uv", ["sync", "--extra", "local"], { cwd: ENGINE_RUNTIME_DIR })
@@ -137,6 +137,7 @@ async function startEngineService(callbackUrl: string): Promise<boolean> {
     // actually-unexpected platform/environment problem worth surfacing,
     // not quietly working around.
     log(`uv sync --extra local failed, engine will not start: ${errorMessage(err)}`)
+    notify("error", "Pegasus memory disabled", `"uv sync --extra local" failed: ${errorMessage(err)} (see ~/.local/share/ontomem/bootstrap.log)`)
     return false
   }
 
@@ -179,12 +180,35 @@ async function startEngineService(callbackUrl: string): Promise<boolean> {
     await sleep(HEALTH_POLL_INTERVAL_MS)
   }
   log("engine service did not become healthy within the poll window")
+  notify("error", "Pegasus memory disabled", "engine service started but never became healthy (see ~/.local/share/ontomem/bootstrap.log)")
   return false
 }
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
+
+// Surfaces a dependency/startup failure as an actual in-TUI toast, not just a
+// line in bootstrap.log -- confirmed live that a missing `uv`/`bun` otherwise
+// fails completely silently from the user's point of view: /memory just
+// doesn't work, with zero visible signal unless they already know to go
+// check that log file. client.tui.showToast (SDK's POST /tui/show-toast)
+// reaches whatever TUI is actually attached to this opencode process; best
+// effort and fire-and-forget since there may be none (e.g. this same plugin
+// file also loads inside the headless `opencode serve` instances spawned by
+// run-detached-write.ts, which have no TUI to show anything in).
+type Notify = (variant: "info" | "warning" | "error", title: string, message: string) => void
+
+function makeNotifier(client: PluginInput["client"]): Notify {
+  return (variant, title, message) => {
+    client.tui.showToast({ body: { title, message, variant, duration: variant === "error" ? 10000 : 6000 } }).catch(() => {})
+  }
+}
+
+const UV_INSTALL_MSG =
+  "'uv' not found on PATH -- Pegasus memory is disabled. Install: https://docs.astral.sh/uv/getting-started/installation/, then restart opencode."
+const BUN_INSTALL_MSG =
+  "'bun' not found on PATH -- this conversation won't be remembered. Install: https://bun.sh, then restart opencode."
 
 // Called once at plugin load (fire-and-forget, not awaited by the plugin
 // factory -- see OntomemPlugin below for why) and again, cheaply, from every
@@ -194,7 +218,7 @@ function errorMessage(err: unknown): string {
 // within one process (bootstrapPromise below caches the in-flight attempt).
 let bootstrapPromise: Promise<boolean> | null = null
 
-function ensureEngineRunning(callbackUrl: string): Promise<boolean> {
+function ensureEngineRunning(callbackUrl: string, notify: Notify): Promise<boolean> {
   if (bootstrapPromise) return bootstrapPromise
   bootstrapPromise = (async () => {
     if (await isEngineHealthy()) {
@@ -219,6 +243,7 @@ function ensureEngineRunning(callbackUrl: string): Promise<boolean> {
         "uv not found on PATH -- install it (https://docs.astral.sh/uv/getting-started/installation/) " +
           "then restart opencode. Memory is disabled until then.",
       )
+      notify("error", "Pegasus memory disabled", UV_INSTALL_MSG)
       return false
     }
 
@@ -226,10 +251,11 @@ function ensureEngineRunning(callbackUrl: string): Promise<boolean> {
       syncEngineSource()
     } catch (err) {
       log(`failed to sync engine source into ${ENGINE_RUNTIME_DIR}: ${errorMessage(err)}`)
+      notify("error", "Pegasus memory disabled", `failed to set up engine: ${errorMessage(err)}`)
       return false
     }
 
-    const started = await startEngineService(callbackUrl)
+    const started = await startEngineService(callbackUrl, notify)
     // Also redundant for a fresh spawn (callbackUrl was already passed as
     // ONTOMEM_HOST_CALLBACK_URL at startup) -- kept for one code path
     // instead of special-casing "did we just spawn it" here.
@@ -365,6 +391,7 @@ function spawnDetachedWrite(
   mode: "agentic" | "plain",
   conversation: unknown,
   directory: string,
+  notify: Notify,
   modelOverride?: { providerID: string; modelID: string },
 ): void {
   // Deliberately NOT process.execPath here. Confirmed live: the real
@@ -382,6 +409,7 @@ function spawnDetachedWrite(
   const bunBin = Bun.which("bun")
   if (!bunBin) {
     log(`dispose: 'bun' not found on PATH, cannot spawn detached ${mode} write -- skipping`)
+    notify("warning", "Pegasus memory: nothing saved", BUN_INSTALL_MSG)
     return
   }
   const payloadFile = join(tmpdir(), `ontomem-write-${Date.now()}-${Math.random().toString(36).slice(2)}.json`)
@@ -455,13 +483,14 @@ export const OntomemPlugin: Plugin = async ({ client, directory }, options) => {
     },
   })
   const callbackUrl = `http://127.0.0.1:${callbackServer.port}`
+  const notify = makeNotifier(client)
 
   // Fire-and-forget: the plugin factory must return quickly (this runs at
   // opencode startup), and a first-run bootstrap (uv sync can take minutes
   // to fetch the local embedding model) must not block that. Every hook
   // below degrades to a no-op if the engine isn't up yet -- same best-effort
   // contract as any other engine-unavailable case.
-  ensureEngineRunning(callbackUrl).then((ok) => {
+  ensureEngineRunning(callbackUrl, notify).then((ok) => {
     if (ok) callService("/decay", {}) // self-gated inside the engine; safe to fire every start
   })
 
@@ -696,7 +725,7 @@ export const OntomemPlugin: Plugin = async ({ client, directory }, options) => {
         // opencode's own 5-second shutdown ceiling.
         const mode = agenticExtractionEnabled ? "agentic" : "plain"
         log(`dispose: dispatching ${mode} write for session ${sessionID} (${conversation.length} turns)`)
-        spawnDetachedWrite(mode, conversation, directory, modelOverride)
+        spawnDetachedWrite(mode, conversation, directory, notify, modelOverride)
       }
       log("dispose: loop finished, stopping callback server")
       callbackServer.stop()
